@@ -38,7 +38,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.0.1",
+    Version = "1.0.2",
     Windows = {},
 }
 
@@ -181,12 +181,47 @@ local function getUiParent()
     return PlayerGui
 end
 
+local function uiFont(weight)
+    local names = {
+        Medium = { "GothamMedium", "Gotham" },
+        Bold = { "GothamBold", "Gotham" },
+        Regular = { "Gotham", "SourceSans" },
+    }
+    for _, name in ipairs(names[weight] or names.Regular) do
+        local ok, font = pcall(function()
+            return Enum.Font[name]
+        end)
+        if ok and font then
+            return font
+        end
+    end
+    return Enum.Font.Gotham
+end
+
 local function make(class, props)
     local obj = Instance.new(class)
     for k, v in pairs(props or {}) do
-        obj[k] = v
+        local ok = pcall(function()
+            obj[k] = v
+        end)
+        if not ok then
+            warn("[YugenUI] skipped property " .. tostring(k) .. " on " .. tostring(class))
+        end
     end
     return obj
+end
+
+local function bindPageCanvas(scroll, layout)
+    local function refresh()
+        local h = layout.AbsoluteContentSize.Y
+        if h < 1 then
+            h = 1
+        end
+        scroll.CanvasSize = UDim2.fromOffset(0, h + 16)
+    end
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refresh)
+    task.defer(refresh)
+    return refresh
 end
 
 local function corner(parent, radius)
@@ -407,7 +442,7 @@ local function addToggle(page, opts)
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 0),
         Size = UDim2.new(1, -80, 1, 0),
-        Font = Enum.Font.GothamMedium,
+        Font = uiFont("Medium"),
         Text = opts.Name or "Toggle",
         TextSize = 13,
         TextColor3 = Theme.Text,
@@ -453,7 +488,7 @@ local function addToggleKeybind(page, opts)
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 0),
         Size = UDim2.new(1, -160, 1, 0),
-        Font = Enum.Font.GothamMedium,
+        Font = uiFont("Medium"),
         Text = opts.Name or "Toggle",
         TextSize = 13,
         TextColor3 = Theme.Text,
@@ -538,7 +573,7 @@ local function addSlider(page, opts)
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 6),
         Size = UDim2.new(1, -90, 0, 18),
-        Font = Enum.Font.GothamMedium,
+        Font = uiFont("Medium"),
         Text = opts.Name or "Slider",
         TextSize = 13,
         TextColor3 = Theme.Text,
@@ -655,7 +690,7 @@ local function addDropdown(page, screenGui, opts)
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 0),
         Size = UDim2.new(0.42, 0, 1, 0),
-        Font = Enum.Font.GothamMedium,
+        Font = uiFont("Medium"),
         Text = opts.Name or "List",
         TextSize = 13,
         TextColor3 = Theme.Text,
@@ -744,7 +779,7 @@ local function addDropdown(page, screenGui, opts)
             Size = UDim2.new(1, 0, 0, 26),
             BackgroundColor3 = Theme.Card,
             Text = "  " .. it.label,
-            Font = Enum.Font.GothamMedium,
+            Font = uiFont("Medium"),
             TextSize = 12,
             TextColor3 = Theme.Text,
             TextXAlignment = Enum.TextXAlignment.Left,
@@ -796,7 +831,7 @@ local function addColorPicker(page, screenGui, opts)
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 0),
         Size = UDim2.new(1, -170, 1, 0),
-        Font = Enum.Font.GothamMedium,
+        Font = uiFont("Medium"),
         Text = opts.Name or "Color",
         TextSize = 13,
         TextColor3 = Theme.Text,
@@ -1094,7 +1129,7 @@ local function addKeybind(page, opts)
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 0),
         Size = UDim2.new(0.55, 0, 1, 0),
-        Font = Enum.Font.GothamMedium,
+        Font = uiFont("Medium"),
         Text = opts.Name or "Keybind",
         TextSize = 13,
         TextColor3 = Theme.Text,
@@ -1368,10 +1403,13 @@ function YugenUI:CreateWindow(config)
 
         for n, t in pairs(Window.Tabs) do
             local active = (n == name)
-            t.Page.Visible = active
+            t.Shell.Visible = active
             t.Button.BackgroundColor3 = active and Theme.AccentDim or Theme.Card
             if t.Label then
                 t.Label.TextColor3 = active and Theme.Text or Theme.Muted
+            end
+            if active and t.Refresh then
+                task.defer(t.Refresh)
             end
         end
 
@@ -1382,6 +1420,13 @@ function YugenUI:CreateWindow(config)
 
     function Window:SelectTab(name)
         switchTab(name)
+    end
+
+    function Window:RefreshTab(name)
+        local tab = Window.Tabs[name or Window.Current]
+        if tab and tab.Refresh then
+            tab.Refresh()
+        end
     end
 
     function Window:CreateTab(tabConfig)
@@ -1407,7 +1452,7 @@ function YugenUI:CreateWindow(config)
             BackgroundTransparency = 1,
             Position = UDim2.fromOffset(12, 0),
             Size = UDim2.new(1, -16, 1, 0),
-            Font = Enum.Font.GothamMedium,
+            Font = uiFont("Medium"),
             Text = tostring(icon) .. "  " .. tostring(name),
             TextSize = 12,
             TextColor3 = Theme.Muted,
@@ -1415,23 +1460,30 @@ function YugenUI:CreateWindow(config)
             Parent = btn,
         })
 
-        local page = make("ScrollingFrame", {
+        local shell = make("Frame", {
             Name = name,
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Visible = false,
+            ZIndex = 1,
+            Parent = pagesFolder,
+        })
+
+        local page = make("ScrollingFrame", {
+            Name = "Scroll",
             Size = UDim2.fromScale(1, 1),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             ScrollBarThickness = 3,
             ScrollBarImageColor3 = Theme.Accent,
+            ScrollingDirection = Enum.ScrollingDirection.Y,
             CanvasSize = UDim2.new(0, 0, 0, 0),
-            AutomaticCanvasSize = Enum.AutomaticSize.Y,
-            Visible = false,
-            Parent = pagesFolder,
+            Parent = shell,
         })
         local pageList = listLayout(page, 8)
         pad(page, 4, 4, 12, 4)
-        pageList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            page.CanvasSize = UDim2.fromOffset(0, pageList.AbsoluteContentSize.Y + 16)
-        end)
+        local refresh = bindPageCanvas(page, pageList)
 
         btn.MouseButton1Click:Connect(function()
             switchTab(name)
@@ -1440,9 +1492,11 @@ function YugenUI:CreateWindow(config)
         local Tab = {
             Name = name,
             Subtitle = tabConfig.Subtitle or "",
+            Shell = shell,
             Page = page,
             Button = btn,
             Label = label,
+            Refresh = refresh,
         }
 
         function Tab:Section(title)
