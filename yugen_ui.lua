@@ -38,7 +38,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.0.0",
+    Version = "1.0.1",
     Windows = {},
 }
 
@@ -1363,27 +1363,37 @@ function YugenUI:CreateWindow(config)
     }
 
     local function switchTab(name)
-        if Window.Current == name then return end
-        for n, tab in pairs(Window.Tabs) do
-            tab.Page.Visible = (n == name)
-            local active = n == name
-            tween(tab.Button, { BackgroundColor3 = active and Theme.AccentDim or Theme.Card }, 0.15)
-            if tab.Label then
-                tab.Label.TextColor3 = active and Theme.Text or Theme.Muted
+        local tab = Window.Tabs[name]
+        if not tab then return end
+
+        for n, t in pairs(Window.Tabs) do
+            local active = (n == name)
+            t.Page.Visible = active
+            t.Button.BackgroundColor3 = active and Theme.AccentDim or Theme.Card
+            if t.Label then
+                t.Label.TextColor3 = active and Theme.Text or Theme.Muted
             end
         end
+
         Window.Current = name
-        local tab = Window.Tabs[name]
-        if tab then
-            pageTitle.Text = name
-            pageSub.Text = tab.Subtitle or ""
-        end
+        pageTitle.Text = name
+        pageSub.Text = tab.Subtitle or ""
+    end
+
+    function Window:SelectTab(name)
+        switchTab(name)
     end
 
     function Window:CreateTab(tabConfig)
         tabConfig = tabConfig or {}
-        local name = tabConfig.Name or ("Tab" .. tostring(#Window.Tabs + 1))
-        local icon = tabConfig.Icon or "•"
+        local name = tabConfig.Name or ("Tab" .. tostring((function()
+            local c = 0
+            for _ in pairs(Window.Tabs) do
+                c = c + 1
+            end
+            return c
+        end)() + 1))
+        local icon = tabConfig.Icon or ">"
 
         local btn = make("TextButton", {
             Size = UDim2.new(1, 0, 0, 34),
@@ -1398,7 +1408,7 @@ function YugenUI:CreateWindow(config)
             Position = UDim2.fromOffset(12, 0),
             Size = UDim2.new(1, -16, 1, 0),
             Font = Enum.Font.GothamMedium,
-            Text = icon .. "  " .. name,
+            Text = tostring(icon) .. "  " .. tostring(name),
             TextSize = 12,
             TextColor3 = Theme.Muted,
             TextXAlignment = Enum.TextXAlignment.Left,
@@ -1412,13 +1422,16 @@ function YugenUI:CreateWindow(config)
             BorderSizePixel = 0,
             ScrollBarThickness = 3,
             ScrollBarImageColor3 = Theme.Accent,
-            CanvasSize = UDim2.new(),
+            CanvasSize = UDim2.new(0, 0, 0, 0),
             AutomaticCanvasSize = Enum.AutomaticSize.Y,
             Visible = false,
             Parent = pagesFolder,
         })
+        local pageList = listLayout(page, 8)
         pad(page, 4, 4, 12, 4)
-        listLayout(page, 8)
+        pageList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            page.CanvasSize = UDim2.fromOffset(0, pageList.AbsoluteContentSize.Y + 16)
+        end)
 
         btn.MouseButton1Click:Connect(function()
             switchTab(name)
@@ -1461,7 +1474,7 @@ function YugenUI:CreateWindow(config)
         end
 
         Window.Tabs[name] = Tab
-        if not Window.Current then
+        if Window.Current == nil then
             switchTab(name)
         end
         return Tab

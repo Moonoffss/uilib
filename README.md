@@ -1,6 +1,6 @@
 ﻿# Yugen UI Library
 
-Dark card UI for Roblox executor scripts.
+Dark card UI for Roblox executor scripts. **v1.0.1**
 
 ## Load
 
@@ -18,15 +18,9 @@ local Window = YugenUI:CreateWindow({
     ToggleKey = Enum.KeyCode.RightShift,
 })
 
-local Tab = Window:CreateTab({ Name = "Main", Icon = "◆" })
+local Tab = Window:CreateTab({ Name = "Main", Icon = "+" })
 Tab:Section("Demo")
 Tab:Toggle({ Name = "Enable", Default = false, Callback = print })
 Tab:Slider({ Name = "Speed", Min = 1, Max = 100, Default = 16, Callback = print })
-Tab:Button({ Name = "Notify", Callback = function()
-    YugenUI:Notify("Yugen", "It works", 3)
-end })
+Window:SelectTab("Main")
 ```
-
-## Themes
-
-`Teal` `Violet` `Crimson` `Ocean` `Amber` `Midnight`
