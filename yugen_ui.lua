@@ -38,7 +38,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.0.3",
+    Version = "1.0.4",
     Windows = {},
 }
 
@@ -1478,11 +1478,11 @@ function YugenUI:CreateWindow(config)
             if vis then
                 vis.Visible = active
             end
-            if t.Button then
-                t.Button.BackgroundColor3 = active and Theme.AccentDim or Theme.Card
+            if t.NavButton then
+                t.NavButton.BackgroundColor3 = active and Theme.AccentDim or Theme.Card
             end
-            if t.Label then
-                t.Label.TextColor3 = active and Theme.Text or Theme.Muted
+            if t.NavLabel then
+                t.NavLabel.TextColor3 = active and Theme.Text or Theme.Muted
             end
             if active and t.Refresh then
                 pcall(t.Refresh)
@@ -1571,8 +1571,8 @@ function YugenUI:CreateWindow(config)
             Subtitle = tabConfig.Subtitle or "",
             Shell = shell,
             Page = page,
-            Button = btn,
-            Label = label,
+            NavButton = btn,
+            NavLabel = label,
             Refresh = refresh,
         }
 
