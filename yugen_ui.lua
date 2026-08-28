@@ -38,9 +38,58 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.0.2",
+    Version = "1.0.3",
     Windows = {},
 }
+
+local taskLib
+pcall(function()
+    taskLib = task
+end)
+
+local function deferCall(fn)
+    if type(fn) ~= "function" then
+        return
+    end
+    if type(taskLib) == "table" and type(taskLib.defer) == "function" then
+        taskLib.defer(fn)
+        return
+    end
+    if type(taskLib) == "table" and type(taskLib.spawn) == "function" then
+        taskLib.spawn(fn)
+        return
+    end
+    if type(spawn) == "function" then
+        spawn(fn)
+        return
+    end
+    pcall(fn)
+end
+
+local function delayCall(sec, fn)
+    if type(fn) ~= "function" then
+        return
+    end
+    if type(taskLib) == "table" and type(taskLib.delay) == "function" then
+        taskLib.delay(sec, fn)
+        return
+    end
+    if type(delay) == "function" then
+        delay(sec, fn)
+        return
+    end
+    deferCall(fn)
+end
+
+local function enumItem(enumName, itemName)
+    local ok, value = pcall(function()
+        return Enum[enumName][itemName]
+    end)
+    if ok then
+        return value
+    end
+    return nil
+end
 
 --------------------------------------------------------------------
 -- Theme
@@ -219,8 +268,10 @@ local function bindPageCanvas(scroll, layout)
         end
         scroll.CanvasSize = UDim2.fromOffset(0, h + 16)
     end
-    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refresh)
-    task.defer(refresh)
+    pcall(function()
+        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refresh)
+    end)
+    deferCall(refresh)
     return refresh
 end
 
@@ -229,13 +280,19 @@ local function corner(parent, radius)
 end
 
 local function stroke(parent, color, thickness, transparency)
-    return make("UIStroke", {
+    local s = make("UIStroke", {
         Color = color or Theme.Stroke,
         Thickness = thickness or 1,
         Transparency = transparency or 0,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
         Parent = parent,
     })
+    pcall(function()
+        local mode = enumItem("ApplyStrokeMode", "Border")
+        if mode then
+            s.ApplyStrokeMode = mode
+        end
+    end)
+    return s
 end
 
 local function pad(parent, t, r, b, l)
@@ -378,10 +435,10 @@ function YugenUI:Notify(title, text, duration)
         TextTruncate = Enum.TextTruncate.AtEnd,
         Parent = toast,
     })
-    task.delay(duration, function()
+    delayCall(duration, function()
         if toast.Parent then
             tween(toast, { BackgroundTransparency = 1 }, 0.18)
-            task.delay(0.2, function()
+            delayCall(0.2, function()
                 if toast.Parent then toast:Destroy() end
             end)
         end
@@ -747,11 +804,16 @@ local function addDropdown(page, screenGui, opts)
         BorderSizePixel = 0,
         ScrollBarThickness = 3,
         ScrollBarImageColor3 = Theme.Accent,
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
         CanvasSize = UDim2.new(),
         ZIndex = 81,
         Parent = drop,
     })
+    pcall(function()
+        local autoY = enumItem("AutomaticSize", "Y")
+        if autoY then
+            dropList.AutomaticCanvasSize = autoY
+        end
+    end)
     pad(dropList, 4, 4, 4, 4)
     listLayout(dropList, 3)
 
@@ -1320,9 +1382,14 @@ function YugenUI:CreateWindow(config)
         ScrollBarThickness = 2,
         ScrollBarImageColor3 = Theme.Accent,
         CanvasSize = UDim2.new(),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
         Parent = sidebar,
     })
+    pcall(function()
+        local autoY = enumItem("AutomaticSize", "Y")
+        if autoY then
+            nav.AutomaticCanvasSize = autoY
+        end
+    end)
     listLayout(nav, 6)
     pad(nav, 2, 2, 2, 2)
 
@@ -1401,21 +1468,26 @@ function YugenUI:CreateWindow(config)
         local tab = Window.Tabs[name]
         if not tab then return end
 
+        Window.Current = name
+        pageTitle.Text = name
+        pageSub.Text = tab.Subtitle or ""
+
         for n, t in pairs(Window.Tabs) do
             local active = (n == name)
-            t.Shell.Visible = active
-            t.Button.BackgroundColor3 = active and Theme.AccentDim or Theme.Card
+            local vis = t.Shell or t.Page
+            if vis then
+                vis.Visible = active
+            end
+            if t.Button then
+                t.Button.BackgroundColor3 = active and Theme.AccentDim or Theme.Card
+            end
             if t.Label then
                 t.Label.TextColor3 = active and Theme.Text or Theme.Muted
             end
             if active and t.Refresh then
-                task.defer(t.Refresh)
+                pcall(t.Refresh)
             end
         end
-
-        Window.Current = name
-        pageTitle.Text = name
-        pageSub.Text = tab.Subtitle or ""
     end
 
     function Window:SelectTab(name)
@@ -1477,10 +1549,15 @@ function YugenUI:CreateWindow(config)
             BorderSizePixel = 0,
             ScrollBarThickness = 3,
             ScrollBarImageColor3 = Theme.Accent,
-            ScrollingDirection = Enum.ScrollingDirection.Y,
             CanvasSize = UDim2.new(0, 0, 0, 0),
             Parent = shell,
         })
+        pcall(function()
+            local dir = enumItem("ScrollingDirection", "Y")
+            if dir then
+                page.ScrollingDirection = dir
+            end
+        end)
         local pageList = listLayout(page, 8)
         pad(page, 4, 4, 12, 4)
         local refresh = bindPageCanvas(page, pageList)
