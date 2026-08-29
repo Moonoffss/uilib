@@ -1,9 +1,9 @@
 --[[
-    Yugen UI Library v1.1.0
+    Yugen UI Library v1.1.1,
     Dark card UI for Roblox executor scripts. Fluent-class API, Yugen look.
 
     Load:
-      local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.1.0"))()
+      local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.1.1"))()
 
     Window:
       local Window = YugenUI:CreateWindow({
@@ -42,7 +42,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.1.0",
+    Version = "1.1.1",
     Windows = {},
     Options = {},
     ThemeName = "Teal",
@@ -344,9 +344,33 @@ local function tween(obj, props, duration)
     return t
 end
 
+local painted = {}
+
+local function resolveThemeName(name)
+    if type(name) == "table" then
+        name = name.id or name.label or name.Name or name[1]
+    end
+    if type(name) ~= "string" or name == "" then
+        return nil
+    end
+    if ThemePresets[name] then
+        return name
+    end
+    local lower = string.lower(name)
+    for k in pairs(ThemePresets) do
+        if string.lower(k) == lower then
+            return k
+        end
+    end
+    return nil
+end
+
 local function applyTheme(name)
-    local preset = ThemePresets[name]
-    if not preset then return false end
+    name = resolveThemeName(name)
+    local preset = name and ThemePresets[name]
+    if not preset then
+        return false
+    end
     YugenUI.ThemeName = name
     for k, v in pairs(preset) do
         Theme[k] = v
@@ -355,13 +379,25 @@ local function applyTheme(name)
 end
 
 local function paint(obj, prop, token)
-    if not obj then
+    if not obj or not prop or not token then
         return obj
     end
     pcall(function()
         obj:SetAttribute("YugenPaint", token)
         obj:SetAttribute("YugenPaintProp", prop)
     end)
+    local found = false
+    for i = 1, #painted do
+        local e = painted[i]
+        if e[1] == obj and e[2] == prop then
+            e[3] = token
+            found = true
+            break
+        end
+    end
+    if not found then
+        painted[#painted + 1] = { obj, prop, token }
+    end
     local color = Theme[token]
     if color ~= nil then
         pcall(function()
@@ -371,32 +407,26 @@ local function paint(obj, prop, token)
     return obj
 end
 
-local function restyle(root)
-    local function walk(inst)
-        local token, prop
+local function restyle()
+    local i = 1
+    while i <= #painted do
+        local e = painted[i]
+        local inst, prop, token = e[1], e[2], e[3]
+        local alive = false
         pcall(function()
-            token = inst:GetAttribute("YugenPaint")
-            prop = inst:GetAttribute("YugenPaintProp")
+            alive = inst ~= nil and inst.Parent ~= nil
         end)
-        if token and prop and Theme[token] ~= nil then
-            pcall(function()
-                inst[prop] = Theme[token]
-            end)
+        if not alive then
+            table.remove(painted, i)
+        else
+            local color = Theme[token]
+            if color ~= nil then
+                pcall(function()
+                    inst[prop] = color
+                end)
+            end
+            i = i + 1
         end
-        for _, child in ipairs(inst:GetChildren()) do
-            walk(child)
-        end
-    end
-    if root then
-        walk(root)
-    end
-    for _, w in ipairs(YugenUI.Windows) do
-        if w.ScreenGui then
-            walk(w.ScreenGui)
-        end
-    end
-    if toastGui then
-        walk(toastGui)
     end
 end
 
@@ -1813,7 +1843,7 @@ function YugenUI:CreateWindow(config)
     paint(brandDot, "BackgroundColor3", "Accent")
     corner(brandDot, 5)
 
-    make("TextLabel", {
+    local titleLabel = make("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(34, 0),
         Size = UDim2.new(0, 200, 1, 0),
@@ -1824,9 +1854,10 @@ function YugenUI:CreateWindow(config)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = titleBar,
     })
+    paint(titleLabel, "TextColor3", "Text")
 
     if config.Subtitle then
-        make("TextLabel", {
+        local subLabel = make("TextLabel", {
             BackgroundTransparency = 1,
             Position = UDim2.fromOffset(34 + (#(config.Name or "Yugen") * 8) + 24, 0),
             Size = UDim2.new(0, 160, 1, 0),
@@ -1837,6 +1868,7 @@ function YugenUI:CreateWindow(config)
             TextXAlignment = Enum.TextXAlignment.Left,
             Parent = titleBar,
         })
+        paint(subLabel, "TextColor3", "Muted")
     end
 
     local closeBtn = make("TextButton", {
@@ -1852,6 +1884,7 @@ function YugenUI:CreateWindow(config)
     })
     corner(closeBtn, 8)
     paint(closeBtn, "BackgroundColor3", "Card")
+    paint(closeBtn, "TextColor3", "Muted")
 
     local minBtn = make("TextButton", {
         Size = UDim2.fromOffset(28, 28),
@@ -1866,6 +1899,7 @@ function YugenUI:CreateWindow(config)
     })
     corner(minBtn, 8)
     paint(minBtn, "BackgroundColor3", "Card")
+    paint(minBtn, "TextColor3", "Muted")
 
     local searchBox = make("TextBox", {
         Size = UDim2.fromOffset(120, 26),
@@ -1910,6 +1944,7 @@ function YugenUI:CreateWindow(config)
         CanvasSize = UDim2.new(),
         Parent = sidebar,
     })
+    paint(nav, "ScrollBarImageColor3", "Accent")
     pcall(function()
         local autoY = enumItem("AutomaticSize", "Y")
         if autoY then
@@ -1942,6 +1977,7 @@ function YugenUI:CreateWindow(config)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = content,
     })
+    paint(pageTitle, "TextColor3", "Text")
     local pageSub = make("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 28),
@@ -1953,6 +1989,7 @@ function YugenUI:CreateWindow(config)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = content,
     })
+    paint(pageSub, "TextColor3", "Muted")
 
     local pagesFolder = make("Frame", {
         Size = UDim2.new(1, -16, 1, -52),
@@ -2490,6 +2527,7 @@ function YugenUI:CreateWindow(config)
             CanvasSize = UDim2.new(0, 0, 0, 0),
             Parent = shell,
         })
+        paint(page, "ScrollBarImageColor3", "Accent")
         pcall(function()
             local dir = enumItem("ScrollingDirection", "Y")
             if dir then
@@ -2843,8 +2881,9 @@ function YugenUI:CreateWindow(config)
             return
         end
         tab:Section("Interface")
+        local themeNames = YugenUI:GetThemes()
         local themeOpts = {}
-        for _, n in ipairs({ "Teal", "Violet", "Crimson", "Ocean", "Amber", "Midnight" }) do
+        for _, n in ipairs(themeNames) do
             table.insert(themeOpts, { id = n, label = n })
         end
         tab:Dropdown({
@@ -2905,11 +2944,17 @@ function YugenUI:CreateWindow(config)
 
     function Window:SetTheme(name)
         if applyTheme(name) then
-            restyle(screenGui)
+            pcall(restyle)
+            pcall(function()
+                main.BackgroundColor3 = Theme.Bg
+                sidebar.BackgroundColor3 = Theme.Panel
+                content.BackgroundColor3 = Theme.Panel
+                brandDot.BackgroundColor3 = Theme.Accent
+            end)
             if Window.Current then
-                switchTab(Window.Current)
+                pcall(switchTab, Window.Current)
             end
-            YugenUI:Notify("Theme", name .. " applied", 2)
+            YugenUI:Notify("Theme", tostring(YugenUI.ThemeName) .. " applied", 2)
             return true
         end
         return false
@@ -2942,7 +2987,7 @@ end
 
 function YugenUI:SetTheme(name)
     if applyTheme(name) then
-        restyle()
+        pcall(restyle)
         return true
     end
     return false
