@@ -14,6 +14,9 @@
           Subtitle = "v1.0",
           Theme = "Teal", -- Teal | Violet | Crimson | Ocean | Amber | Midnight
           ToggleKey = Enum.KeyCode.RightShift,
+          Resizable = true, -- drag bottom-right corner
+          ShowProfile = true,
+          Profile = { Plan = "Free", Subtitle = "Free plan" },
       })
 
       local Tab = Window:CreateTab({ Name = "Main", Icon = "◆" })
@@ -38,7 +41,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.0.4",
+    Version = "1.0.5",
     Windows = {},
 }
 
@@ -89,6 +92,16 @@ local function enumItem(enumName, itemName)
         return value
     end
     return nil
+end
+
+local function clamp(n, a, b)
+    if n < a then
+        return a
+    end
+    if n > b then
+        return b
+    end
+    return n
 end
 
 --------------------------------------------------------------------
@@ -1365,7 +1378,7 @@ function YugenUI:CreateWindow(config)
     corner(closeBtn, 8)
 
     local sidebar = make("Frame", {
-        Size = UDim2.new(0, 140, 1, -58),
+        Size = UDim2.new(0, 148, 1, -58),
         Position = UDim2.fromOffset(12, 48),
         BackgroundColor3 = Theme.Panel,
         BorderSizePixel = 0,
@@ -1374,8 +1387,12 @@ function YugenUI:CreateWindow(config)
     corner(sidebar, 12)
     stroke(sidebar, Theme.Stroke, 1, 0.4)
 
+    local PROFILE_H = 82
+    local showProfile = config.ShowProfile ~= false
+    local navHeightPad = showProfile and (PROFILE_H + 16) or 12
+
     local nav = make("ScrollingFrame", {
-        Size = UDim2.new(1, -12, 1, -12),
+        Size = UDim2.new(1, -12, 1, -navHeightPad),
         Position = UDim2.fromOffset(6, 6),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -1394,8 +1411,8 @@ function YugenUI:CreateWindow(config)
     pad(nav, 2, 2, 2, 2)
 
     local content = make("Frame", {
-        Size = UDim2.new(1, -172, 1, -58),
-        Position = UDim2.fromOffset(160, 48),
+        Size = UDim2.new(1, -180, 1, -58),
+        Position = UDim2.fromOffset(168, 48),
         BackgroundColor3 = Theme.Panel,
         BorderSizePixel = 0,
         Parent = main,
@@ -1434,28 +1451,434 @@ function YugenUI:CreateWindow(config)
         Parent = content,
     })
 
-    -- drag
-    do
-        local dragging, dragStart, startPos
-        titleBar.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                dragStart = input.Position
-                startPos = main.Position
-            end
-        end)
-        titleBar.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-            end
-        end)
-        UserInputService.InputChanged:Connect(function(input)
-            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                local d = input.Position - dragStart
-                main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+    local profileState = {
+        Plan = "Free",
+        PlanLabel = "FREE",
+        Subtitle = "Free plan",
+        KeyText = "No active premium key",
+        UpgradeUrl = config.UpgradeUrl or "",
+        UpgradeText = "Get Premium",
+        Premium = false,
+    }
+    if type(config.Profile) == "table" then
+        for k, v in pairs(config.Profile) do
+            profileState[k] = v
+        end
+    end
+
+    local profileBtn, planChip, planChipLabel, planSubLabel
+    local accountModal, accountPlanTitle, accountPlanDesc, accountKeyLabel, upgradeBtn, accountAvatar
+    local openProfileFn, closeProfileFn, refreshProfileFn
+
+    local function loadAvatar(imageLabel)
+        if not imageLabel then
+            return
+        end
+        deferCall(function()
+            local ok, thumb = pcall(function()
+                return Players:GetUserThumbnailAsync(
+                    LocalPlayer.UserId,
+                    Enum.ThumbnailType.HeadShot,
+                    Enum.ThumbnailSize.Size100x100
+                )
+            end)
+            if ok and type(thumb) == "string" and thumb ~= "" then
+                imageLabel.Image = thumb
+            else
+                imageLabel.Image = string.format(
+                    "rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150",
+                    LocalPlayer.UserId
+                )
             end
         end)
     end
+
+    if showProfile then
+        profileBtn = make("TextButton", {
+            Name = "Profile",
+            Size = UDim2.new(1, -12, 0, PROFILE_H),
+            Position = UDim2.new(0, 6, 1, -(PROFILE_H + 6)),
+            BackgroundColor3 = Theme.Card,
+            BorderSizePixel = 0,
+            Text = "",
+            AutoButtonColor = false,
+            Parent = sidebar,
+        })
+        corner(profileBtn, 10)
+        stroke(profileBtn, Theme.AccentDim, 1, 0.55)
+
+        local avatarRing = make("Frame", {
+            Size = UDim2.fromOffset(36, 36),
+            Position = UDim2.fromOffset(8, 10),
+            BackgroundColor3 = Theme.Accent,
+            BorderSizePixel = 0,
+            Parent = profileBtn,
+        })
+        corner(avatarRing, 18)
+
+        local avatar = make("ImageLabel", {
+            Size = UDim2.fromOffset(30, 30),
+            Position = UDim2.fromOffset(3, 3),
+            BackgroundColor3 = Theme.Panel,
+            BorderSizePixel = 0,
+            Image = "",
+            Parent = avatarRing,
+        })
+        corner(avatar, 15)
+
+        local statusDot = make("Frame", {
+            Size = UDim2.fromOffset(8, 8),
+            Position = UDim2.fromOffset(26, 26),
+            BackgroundColor3 = Theme.Success,
+            BorderSizePixel = 0,
+            ZIndex = 2,
+            Parent = avatarRing,
+        })
+        corner(statusDot, 4)
+
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(50, 8),
+            Size = UDim2.new(1, -58, 0, 14),
+            Font = uiFont("Bold"),
+            Text = LocalPlayer.DisplayName,
+            TextSize = 11,
+            TextColor3 = Theme.Text,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = profileBtn,
+        })
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(50, 22),
+            Size = UDim2.new(1, -58, 0, 12),
+            Font = uiFont("Regular"),
+            Text = "@" .. LocalPlayer.Name,
+            TextSize = 9,
+            TextColor3 = Theme.Muted,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = profileBtn,
+        })
+
+        planChip = make("Frame", {
+            Size = UDim2.fromOffset(52, 16),
+            Position = UDim2.fromOffset(8, 54),
+            BackgroundColor3 = Theme.Track,
+            BorderSizePixel = 0,
+            Parent = profileBtn,
+        })
+        corner(planChip, 5)
+        planChipLabel = make("TextLabel", {
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            Font = uiFont("Bold"),
+            Text = "FREE",
+            TextSize = 8,
+            TextColor3 = Theme.Muted,
+            Parent = planChip,
+        })
+        planSubLabel = make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(64, 54),
+            Size = UDim2.new(1, -72, 0, 16),
+            Font = uiFont("Regular"),
+            Text = "Free plan",
+            TextSize = 9,
+            TextColor3 = Theme.Muted,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = profileBtn,
+        })
+
+        accountModal = make("Frame", {
+            Name = "AccountModal",
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            Visible = false,
+            ZIndex = 50,
+            Parent = main,
+        })
+        local dimBtn = make("TextButton", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+            BackgroundTransparency = 0.45,
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = 50,
+            Parent = accountModal,
+        })
+        local accountPanel = make("Frame", {
+            Size = UDim2.fromOffset(320, 300),
+            Position = UDim2.new(0.5, -160, 0.5, -150),
+            BackgroundColor3 = Theme.Bg,
+            BorderSizePixel = 0,
+            ZIndex = 51,
+            Parent = accountModal,
+        })
+        corner(accountPanel, 16)
+        stroke(accountPanel, Theme.Stroke, 1, 0.15)
+
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(20, 16),
+            Size = UDim2.new(1, -60, 0, 22),
+            Font = uiFont("Bold"),
+            Text = "Account",
+            TextSize = 16,
+            TextColor3 = Theme.Text,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 52,
+            Parent = accountPanel,
+        })
+        local accountClose = make("TextButton", {
+            Size = UDim2.fromOffset(28, 28),
+            Position = UDim2.new(1, -40, 0, 12),
+            BackgroundColor3 = Theme.Card,
+            Text = "×",
+            Font = uiFont("Bold"),
+            TextSize = 16,
+            TextColor3 = Theme.Muted,
+            AutoButtonColor = false,
+            ZIndex = 52,
+            Parent = accountPanel,
+        })
+        corner(accountClose, 8)
+
+        accountAvatar = make("ImageLabel", {
+            Size = UDim2.fromOffset(56, 56),
+            Position = UDim2.fromOffset(20, 52),
+            BackgroundColor3 = Theme.Panel,
+            BorderSizePixel = 0,
+            Image = "",
+            ZIndex = 52,
+            Parent = accountPanel,
+        })
+        corner(accountAvatar, 28)
+
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(88, 56),
+            Size = UDim2.new(1, -108, 0, 20),
+            Font = uiFont("Bold"),
+            Text = LocalPlayer.DisplayName,
+            TextSize = 15,
+            TextColor3 = Theme.Text,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 52,
+            Parent = accountPanel,
+        })
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(88, 78),
+            Size = UDim2.new(1, -108, 0, 16),
+            Font = uiFont("Regular"),
+            Text = "@" .. LocalPlayer.Name,
+            TextSize = 12,
+            TextColor3 = Theme.Muted,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 52,
+            Parent = accountPanel,
+        })
+
+        local accountPlanCard = make("Frame", {
+            Size = UDim2.new(1, -40, 0, 72),
+            Position = UDim2.fromOffset(20, 124),
+            BackgroundColor3 = Theme.Card,
+            BorderSizePixel = 0,
+            ZIndex = 52,
+            Parent = accountPanel,
+        })
+        corner(accountPlanCard, 12)
+        stroke(accountPlanCard, Theme.Stroke, 1, 0.35)
+        accountPlanTitle = make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(14, 12),
+            Size = UDim2.new(1, -28, 0, 18),
+            Font = uiFont("Bold"),
+            Text = "Free plan",
+            TextSize = 14,
+            TextColor3 = Theme.Text,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 53,
+            Parent = accountPlanCard,
+        })
+        accountPlanDesc = make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(14, 34),
+            Size = UDim2.new(1, -28, 0, 28),
+            Font = uiFont("Regular"),
+            Text = "Hub access with free features.",
+            TextSize = 11,
+            TextColor3 = Theme.Muted,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextWrapped = true,
+            ZIndex = 53,
+            Parent = accountPlanCard,
+        })
+        accountKeyLabel = make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(20, 206),
+            Size = UDim2.new(1, -40, 0, 18),
+            Font = uiFont("Medium"),
+            Text = "",
+            TextSize = 12,
+            TextColor3 = Theme.Accent,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 52,
+            Parent = accountPanel,
+        })
+        upgradeBtn = make("TextButton", {
+            Size = UDim2.new(1, -40, 0, 36),
+            Position = UDim2.fromOffset(20, 240),
+            BackgroundColor3 = Theme.AccentDim,
+            Text = "Get Premium",
+            Font = uiFont("Bold"),
+            TextSize = 13,
+            TextColor3 = Theme.Text,
+            AutoButtonColor = false,
+            ZIndex = 52,
+            Parent = accountPanel,
+        })
+        corner(upgradeBtn, 10)
+
+        local function refreshProfileUi()
+            local premium = profileState.Premium or string.lower(tostring(profileState.Plan or "")) == "premium"
+            planChipLabel.Text = profileState.PlanLabel or (premium and "PREMIUM" or "FREE")
+            planSubLabel.Text = profileState.Subtitle or (premium and "Premium" or "Free plan")
+            if premium then
+                planChip.BackgroundColor3 = Theme.AccentDim
+                planChipLabel.TextColor3 = Theme.Text
+                accountPlanTitle.Text = "Premium plan"
+                accountPlanDesc.Text = profileState.Subtitle or "Premium access. All features unlocked."
+            else
+                planChip.BackgroundColor3 = Theme.Track
+                planChipLabel.TextColor3 = Theme.Muted
+                accountPlanTitle.Text = "Free plan"
+                accountPlanDesc.Text = "Basic access. Upgrade for Premium."
+            end
+            accountKeyLabel.Text = profileState.KeyText or ""
+            upgradeBtn.Text = profileState.UpgradeText or (premium and "Discord" or "Get Premium")
+            accountAvatar.Image = avatar.Image
+        end
+
+        local function openAccountModal()
+            refreshProfileUi()
+            accountModal.Visible = true
+        end
+        local function closeAccountModal()
+            accountModal.Visible = false
+        end
+
+        profileBtn.MouseButton1Click:Connect(openAccountModal)
+        profileBtn.MouseEnter:Connect(function()
+            tween(profileBtn, { BackgroundColor3 = Theme.CardHover }, 0.12)
+        end)
+        profileBtn.MouseLeave:Connect(function()
+            tween(profileBtn, { BackgroundColor3 = Theme.Card }, 0.12)
+        end)
+        accountClose.MouseButton1Click:Connect(closeAccountModal)
+        dimBtn.MouseButton1Click:Connect(closeAccountModal)
+        upgradeBtn.MouseButton1Click:Connect(function()
+            local url = profileState.UpgradeUrl or ""
+            if type(profileState.OnUpgrade) == "function" then
+                pcall(profileState.OnUpgrade, url)
+                return
+            end
+            if url == "" then
+                YugenUI:Notify("Account", "No upgrade link set", 3)
+                return
+            end
+            local copied = false
+            pcall(function()
+                if typeof(setclipboard) == "function" then
+                    setclipboard(url)
+                    copied = true
+                end
+            end)
+            if copied then
+                YugenUI:Notify("Account", "Link copied", 3)
+            else
+                YugenUI:Notify("Account", url, 4)
+            end
+        end)
+
+        loadAvatar(avatar)
+        loadAvatar(accountAvatar)
+        refreshProfileUi()
+        openProfileFn = openAccountModal
+        closeProfileFn = closeAccountModal
+        refreshProfileFn = refreshProfileUi
+    end
+
+    -- drag + resize
+    local dragging, resizing = false, false
+    local dragStart, startPos, startSize
+    local minW = (config.MinSize and config.MinSize.X) or 440
+    local minH = (config.MinSize and config.MinSize.Y) or 320
+    local maxW = (config.MaxSize and config.MaxSize.X) or 920
+    local maxH = (config.MaxSize and config.MaxSize.Y) or 720
+    local resizable = config.Resizable ~= false
+
+    titleBar.InputBegan:Connect(function(input)
+        if resizing then
+            return
+        end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = main.Position
+        end
+    end)
+
+    if resizable then
+        local resizeHandle = make("TextButton", {
+            Name = "Resize",
+            Size = UDim2.fromOffset(18, 18),
+            Position = UDim2.new(1, -18, 1, -18),
+            BackgroundTransparency = 1,
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = 30,
+            Parent = main,
+        })
+        for i = 1, 3 do
+            make("Frame", {
+                Size = UDim2.fromOffset(2 + i * 3, 2),
+                Position = UDim2.fromOffset(14 - i * 3, 14 - (3 - i)),
+                BackgroundColor3 = Theme.Muted,
+                BackgroundTransparency = 0.25,
+                BorderSizePixel = 0,
+                Parent = resizeHandle,
+            })
+        end
+        resizeHandle.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                resizing = true
+                dragging = false
+                dragStart = input.Position
+                startSize = Vector2.new(main.AbsoluteSize.X, main.AbsoluteSize.Y)
+            end
+        end)
+    end
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+        if resizing and dragStart and startSize then
+            local delta = input.Position - dragStart
+            local w = clamp(startSize.X + delta.X, minW, maxW)
+            local h = clamp(startSize.Y + delta.Y, minH, maxH)
+            main.Size = UDim2.fromOffset(w, h)
+        elseif dragging and dragStart and startPos then
+            local d = input.Position - dragStart
+            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            resizing = false
+        end
+    end)
 
     local Window = {
         ScreenGui = screenGui,
@@ -1609,6 +2032,30 @@ function YugenUI:CreateWindow(config)
             switchTab(name)
         end
         return Tab
+    end
+
+    function Window:SetProfile(info)
+        if type(info) ~= "table" then
+            return
+        end
+        for k, v in pairs(info) do
+            profileState[k] = v
+        end
+        if refreshProfileFn then
+            refreshProfileFn()
+        end
+    end
+
+    function Window:OpenProfile()
+        if openProfileFn then
+            openProfileFn()
+        end
+    end
+
+    function Window:CloseProfile()
+        if closeProfileFn then
+            closeProfileFn()
+        end
     end
 
     function Window:SetTheme(name)
