@@ -1,34 +1,35 @@
 --[[
-    Yugen UI Library
-    Dark teal card UI for Roblox executor scripts.
+    Yugen UI Library v1.1.0
+    Dark card UI for Roblox executor scripts. Fluent-class API, Yugen look.
 
-    Load from GitHub:
-      local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/USER/REPO/main/yugen_ui.lua"))()
+    Load:
+      local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.1.0"))()
 
-    Load locally:
-      local YugenUI = loadstring(readfile("yugen_ui.lua"))()
-
-    Quick start:
+    Window:
       local Window = YugenUI:CreateWindow({
-          Name = "My Hub",
-          Subtitle = "v1.0",
-          Theme = "Teal", -- Teal | Violet | Crimson | Ocean | Amber | Midnight
-          ToggleKey = Enum.KeyCode.RightShift,
-          Resizable = true, -- drag bottom-right corner
-          ShowProfile = true,
-          Profile = { Plan = "Free", Subtitle = "Free plan" },
+          Name = "Yugen", Subtitle = "v1.1", Theme = "Teal",
+          ToggleKey = Enum.KeyCode.RightShift, Resizable = true,
+          ShowProfile = true, Profile = { Plan = "Free", Subtitle = "Free plan" },
+          Transparency = false, Acrylic = false, -- acrylic off: may be detectable
       })
+      Window:SetTheme("Violet")
+      Window:Minimize()
+      Window:Dialog({ Title = "Sure?", Content = "…", Buttons = {
+          { Title = "Yes", Callback = function() end },
+          { Title = "No" },
+      }})
+      Window:BuildSettingsTab(settingsTab)
+      Window:SaveConfig("default") / LoadConfig / ListConfigs
 
-      local Tab = Window:CreateTab({ Name = "Main", Icon = "◆" })
-      Tab:Section("Combat")
-      Tab:Toggle({ Name = "Aimbot", Default = false, Callback = function(v) print(v) end })
-      Tab:Slider({ Name = "FOV", Min = 20, Max = 400, Default = 120, Callback = print })
-      Tab:Dropdown({ Name = "Mode", Options = {"Legit","Rage"}, Default = "Legit", Callback = print })
-      Tab:ColorPicker({ Name = "Accent", Default = Color3.fromRGB(56,214,186), Callback = print })
-      Tab:Keybind({ Name = "Toggle", Default = Enum.KeyCode.Q, Callback = print })
-      Tab:Button({ Name = "Notify me", Callback = function()
-          YugenUI:Notify("Yugen", "Hello", 3)
-      end })
+    Controls (all accept Description, Flag):
+      Tab:Section, Label, Paragraph, Toggle, ToggleKeybind, Slider,
+      Dropdown ({ Multi = true }), Input, ColorPicker, Keybind ({ Mode = "Toggle"|"Hold"|"Always", GetState }),
+      Button
+      Returns { Set, Get, OnChanged, Value } and registers YugenUI.Options[Flag] / Window.Flags
+
+    Notify:
+      YugenUI:Notify("Title", "Text", 3)
+      YugenUI:Notify({ Title = "Yugen", Content = "Hi", SubContent = "extra", Duration = 0 }) -- 0 = sticky
 --]]
 
 local Players = game:GetService("Players")
@@ -41,9 +42,15 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.0.5",
+    Version = "1.1.0",
     Windows = {},
+    Options = {},
+    ThemeName = "Teal",
+    Transparency = false,
+    Acrylic = false,
 }
+
+local toastGui
 
 local taskLib
 pcall(function()
@@ -340,10 +347,74 @@ end
 local function applyTheme(name)
     local preset = ThemePresets[name]
     if not preset then return false end
+    YugenUI.ThemeName = name
     for k, v in pairs(preset) do
         Theme[k] = v
     end
     return true
+end
+
+local function paint(obj, prop, token)
+    if not obj then
+        return obj
+    end
+    pcall(function()
+        obj:SetAttribute("YugenPaint", token)
+        obj:SetAttribute("YugenPaintProp", prop)
+    end)
+    local color = Theme[token]
+    if color ~= nil then
+        pcall(function()
+            obj[prop] = color
+        end)
+    end
+    return obj
+end
+
+local function restyle(root)
+    local function walk(inst)
+        local token, prop
+        pcall(function()
+            token = inst:GetAttribute("YugenPaint")
+            prop = inst:GetAttribute("YugenPaintProp")
+        end)
+        if token and prop and Theme[token] ~= nil then
+            pcall(function()
+                inst[prop] = Theme[token]
+            end)
+        end
+        for _, child in ipairs(inst:GetChildren()) do
+            walk(child)
+        end
+    end
+    if root then
+        walk(root)
+    end
+    for _, w in ipairs(YugenUI.Windows) do
+        if w.ScreenGui then
+            walk(w.ScreenGui)
+        end
+    end
+    if toastGui then
+        walk(toastGui)
+    end
+end
+
+local ICONS = {
+    player = "+",
+    combat = "*",
+    eye = "o",
+    settings = "=",
+    fling = "~",
+    misc = "#",
+    home = ">",
+}
+
+local function resolveIcon(icon)
+    if not icon or icon == "" then
+        return ">"
+    end
+    return ICONS[string.lower(tostring(icon))] or tostring(icon)
 end
 
 local function colorToHex(c)
@@ -381,11 +452,6 @@ local COLOR_PRESETS = {
 local activeDropdownClose
 local activeColorClose
 local dropdownIgnoreUntil = 0
-
---------------------------------------------------------------------
--- Notify
---------------------------------------------------------------------
-local toastGui
 local function ensureToastGui()
     if toastGui and toastGui.Parent then return toastGui end
     toastGui = make("ScreenGui", {
@@ -408,23 +474,39 @@ local function ensureToastGui()
 end
 
 function YugenUI:Notify(title, text, duration)
-    duration = duration or 3
+    local sub
+    if type(title) == "table" then
+        local cfg = title
+        title = cfg.Title or cfg.Name or "Yugen"
+        sub = cfg.SubContent
+        text = cfg.Content or cfg.Text or text
+        duration = cfg.Duration
+        if duration == nil then
+            duration = 3
+        end
+    else
+        duration = duration or 3
+    end
     local gui = ensureToastGui()
     local stack = gui:FindFirstChild("Stack")
+    local h = (sub and sub ~= "") and 72 or 56
     local toast = make("Frame", {
-        Size = UDim2.new(1, 0, 0, 56),
+        Size = UDim2.new(1, 0, 0, h),
         BackgroundColor3 = Theme.Card,
         BorderSizePixel = 0,
         Parent = stack,
     })
+    paint(toast, "BackgroundColor3", "Card")
     corner(toast, 10)
-    stroke(toast, Theme.Accent, 1, 0.35)
-    make("Frame", {
-        Size = UDim2.fromOffset(3, 56),
+    local st = stroke(toast, Theme.Accent, 1, 0.35)
+    paint(st, "Color", "Accent")
+    local bar = make("Frame", {
+        Size = UDim2.fromOffset(3, h),
         BackgroundColor3 = Theme.Accent,
         BorderSizePixel = 0,
         Parent = toast,
     })
+    paint(bar, "BackgroundColor3", "Accent")
     make("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 8),
@@ -448,14 +530,30 @@ function YugenUI:Notify(title, text, duration)
         TextTruncate = Enum.TextTruncate.AtEnd,
         Parent = toast,
     })
-    delayCall(duration, function()
-        if toast.Parent then
-            tween(toast, { BackgroundTransparency = 1 }, 0.18)
-            delayCall(0.2, function()
-                if toast.Parent then toast:Destroy() end
-            end)
-        end
-    end)
+    if sub and sub ~= "" then
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(14, 46),
+            Size = UDim2.new(1, -24, 0, 18),
+            Font = Enum.Font.Gotham,
+            Text = sub,
+            TextSize = 11,
+            TextColor3 = Theme.Muted,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = toast,
+        })
+    end
+    if duration and duration > 0 then
+        delayCall(duration, function()
+            if toast.Parent then
+                tween(toast, { BackgroundTransparency = 1 }, 0.18)
+                delayCall(0.2, function()
+                    if toast.Parent then toast:Destroy() end
+                end)
+            end
+        end)
+    end
+    return toast
 end
 
 --------------------------------------------------------------------
@@ -468,8 +566,10 @@ local function makeCard(parent, height)
         BorderSizePixel = 0,
         Parent = parent,
     })
+    paint(c, "BackgroundColor3", "Card")
     corner(c, 10)
-    stroke(c, Theme.Stroke, 1, 0.45)
+    local st = stroke(c, Theme.Stroke, 1, 0.45)
+    paint(st, "Color", "Stroke")
     c.MouseEnter:Connect(function()
         tween(c, { BackgroundColor3 = Theme.CardHover }, 0.12)
     end)
@@ -479,8 +579,82 @@ local function makeCard(parent, height)
     return c
 end
 
+local function cardHeight(opts, base)
+    if opts and opts.Description and opts.Description ~= "" then
+        return (base or 44) + 14
+    end
+    return base or 44
+end
+
+local function addNameBlock(frame, opts, rightPad)
+    local hasDesc = opts.Description and opts.Description ~= ""
+    local title = make("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(14, hasDesc and 6 or 0),
+        Size = UDim2.new(1, -(rightPad or 80), hasDesc and 0 or 1, hasDesc and 16 or 0),
+        Font = uiFont("Medium"),
+        Text = opts.Name or opts.Title or "",
+        TextSize = 13,
+        TextColor3 = Theme.Text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = frame,
+    })
+    paint(title, "TextColor3", "Text")
+    if hasDesc then
+        local desc = make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(14, 22),
+            Size = UDim2.new(1, -(rightPad or 80), 0, 16),
+            Font = uiFont("Regular"),
+            Text = opts.Description,
+            TextSize = 11,
+            TextColor3 = Theme.Muted,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = frame,
+        })
+        paint(desc, "TextColor3", "Muted")
+    end
+    return title
+end
+
+local function bindSearch(frame, opts)
+    local label = string.lower(tostring(opts.Name or opts.Title or ""))
+    pcall(function()
+        frame:SetAttribute("YugenSearch", label)
+    end)
+end
+
+local function makeFlag(opts, get, set, extra)
+    extra = extra or {}
+    extra.Get = get
+    extra.Set = function(v, fire)
+        return set(v, fire ~= false)
+    end
+    extra.OnChanged = function(fn)
+        extra._onChanged = fn
+    end
+    extra.Value = extra.Value
+    extra.Flag = opts.Flag or opts.Idx
+    extra.Title = opts.Name or opts.Title
+    local origSet = extra.Set
+    extra.Set = function(v, fire)
+        origSet(v, fire)
+        extra.Value = extra.Get()
+        if extra._onChanged then
+            pcall(extra._onChanged, extra.Value)
+        end
+    end
+    extra.SetValue = extra.Set
+    extra.GetValue = extra.Get
+    local flag = extra.Flag
+    if type(flag) == "string" and flag ~= "" then
+        YugenUI.Options[flag] = extra
+    end
+    return extra
+end
+
 local function addSection(page, title)
-    make("TextLabel", {
+    local lab = make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 18),
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
@@ -490,10 +664,13 @@ local function addSection(page, title)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = page,
     })
+    paint(lab, "TextColor3", "Accent")
+    bindSearch(lab, { Name = title })
+    return lab
 end
 
 local function addLabel(page, text)
-    make("TextLabel", {
+    local lab = make("TextLabel", {
         Size = UDim2.new(1, 0, 0, 18),
         BackgroundTransparency = 1,
         Font = Enum.Font.Gotham,
@@ -503,22 +680,106 @@ local function addLabel(page, text)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = page,
     })
+    paint(lab, "TextColor3", "Muted")
+    bindSearch(lab, { Name = text })
+    return lab
 end
 
-local function addToggle(page, opts)
+local function addParagraph(page, opts)
     opts = opts or {}
-    local frame = makeCard(page, 44)
-    make("TextLabel", {
+    local frame = makeCard(page, 72)
+    bindSearch(frame, opts)
+    local titleL = make("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(14, 0),
-        Size = UDim2.new(1, -80, 1, 0),
-        Font = uiFont("Medium"),
-        Text = opts.Name or "Toggle",
+        Position = UDim2.fromOffset(14, 8),
+        Size = UDim2.new(1, -28, 0, 16),
+        Font = uiFont("Bold"),
+        Text = opts.Title or opts.Name or "Info",
         TextSize = 13,
         TextColor3 = Theme.Text,
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = frame,
     })
+    paint(titleL, "TextColor3", "Text")
+    local bodyL = make("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(14, 28),
+        Size = UDim2.new(1, -28, 0, 36),
+        Font = uiFont("Regular"),
+        Text = opts.Content or opts.Description or "",
+        TextSize = 12,
+        TextColor3 = Theme.Muted,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        TextWrapped = true,
+        Parent = frame,
+    })
+    paint(bodyL, "TextColor3", "Muted")
+    return frame
+end
+
+local function addInput(page, opts)
+    opts = opts or {}
+    local frame = makeCard(page, cardHeight(opts, 44))
+    bindSearch(frame, opts)
+    addNameBlock(frame, opts, 170)
+    local value = tostring(opts.Default or "")
+    local box = make("TextBox", {
+        Size = UDim2.fromOffset(148, 28),
+        Position = UDim2.new(1, -162, 0.5, -14),
+        BackgroundColor3 = Theme.Panel,
+        BorderSizePixel = 0,
+        Font = uiFont("Bold"),
+        Text = value,
+        PlaceholderText = opts.Placeholder or "",
+        TextColor3 = Theme.Accent,
+        TextSize = 12,
+        ClearTextOnFocus = false,
+        Parent = frame,
+    })
+    paint(box, "BackgroundColor3", "Panel")
+    paint(box, "TextColor3", "Accent")
+    corner(box, 8)
+    stroke(box, Theme.AccentDim, 1, 0.35)
+    local function emit()
+        local t = box.Text
+        if opts.Numeric then
+            t = tonumber(t) or 0
+        end
+        value = t
+        if opts.Callback then
+            pcall(opts.Callback, t)
+        end
+    end
+    box.FocusLost:Connect(function()
+        emit()
+    end)
+    if not opts.Finished then
+        box:GetPropertyChangedSignal("Text"):Connect(function()
+            if opts.Numeric and box.Text ~= "" and not tonumber(box.Text) then
+                return
+            end
+        end)
+    end
+    local api
+    api = makeFlag(opts, function()
+        return value
+    end, function(v)
+        box.Text = tostring(v)
+        value = opts.Numeric and (tonumber(v) or 0) or tostring(v)
+        if opts.Callback then
+            pcall(opts.Callback, value)
+        end
+    end)
+    api.Value = value
+    return api
+end
+
+local function addToggle(page, opts)
+    opts = opts or {}
+    local frame = makeCard(page, cardHeight(opts, 44))
+    bindSearch(frame, opts)
+    addNameBlock(frame, opts, 80)
     local track = make("TextButton", {
         Size = UDim2.fromOffset(42, 24),
         Position = UDim2.new(1, -56, 0.5, -12),
@@ -535,36 +796,34 @@ local function addToggle(page, opts)
         BorderSizePixel = 0,
         Parent = track,
     })
+    paint(knob, "BackgroundColor3", "Text")
     corner(knob, 9)
     local state = not not opts.Default
     local function set(v, fire)
         state = not not v
         track.BackgroundColor3 = state and Theme.Accent or Theme.Track
+        paint(track, "BackgroundColor3", state and "Accent" or "Track")
         tween(knob, { Position = state and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3) }, 0.15)
         if fire ~= false and opts.Callback then
             pcall(opts.Callback, state)
         end
     end
+    paint(track, "BackgroundColor3", state and "Accent" or "Track")
     track.MouseButton1Click:Connect(function()
         set(not state, true)
     end)
-    return { Set = set, Get = function() return state end }
+    local api = makeFlag(opts, function()
+        return state
+    end, set)
+    api.Value = state
+    return api
 end
 
 local function addToggleKeybind(page, opts)
     opts = opts or {}
-    local frame = makeCard(page, 44)
-    make("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(14, 0),
-        Size = UDim2.new(1, -160, 1, 0),
-        Font = uiFont("Medium"),
-        Text = opts.Name or "Toggle",
-        TextSize = 13,
-        TextColor3 = Theme.Text,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = frame,
-    })
+    local frame = makeCard(page, cardHeight(opts, 44))
+    bindSearch(frame, opts)
+    addNameBlock(frame, opts, 160)
     local currentKey = opts.DefaultKey or Enum.KeyCode.Unknown
     local keyBtn = make("TextButton", {
         Size = UDim2.fromOffset(72, 26),
@@ -577,6 +836,8 @@ local function addToggleKeybind(page, opts)
         AutoButtonColor = false,
         Parent = frame,
     })
+    paint(keyBtn, "BackgroundColor3", "Panel")
+    paint(keyBtn, "TextColor3", "Accent")
     corner(keyBtn, 8)
     stroke(keyBtn, Theme.AccentDim, 1, 0.35)
     local track = make("TextButton", {
@@ -595,16 +856,18 @@ local function addToggleKeybind(page, opts)
         BorderSizePixel = 0,
         Parent = track,
     })
+    paint(knob, "BackgroundColor3", "Text")
     corner(knob, 9)
     local state = not not opts.Default
     local function set(v, fire)
         state = not not v
-        track.BackgroundColor3 = state and Theme.Accent or Theme.Track
+        paint(track, "BackgroundColor3", state and "Accent" or "Track")
         tween(knob, { Position = state and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3) }, 0.15)
         if fire ~= false and opts.Callback then
             pcall(opts.Callback, state)
         end
     end
+    paint(track, "BackgroundColor3", state and "Accent" or "Track")
     local listening, conn
     keyBtn.MouseButton1Click:Connect(function()
         if listening then return end
@@ -630,26 +893,31 @@ local function addToggleKeybind(page, opts)
     track.MouseButton1Click:Connect(function()
         set(not state, true)
     end)
-    return { Set = set, Get = function() return state end, GetKey = function() return currentKey end }
+    local api = makeFlag(opts, function()
+        return state
+    end, set, {
+        GetKey = function()
+            return currentKey
+        end,
+        SetKey = function(k)
+            if k then
+                currentKey = k
+                keyBtn.Text = k.Name
+            end
+        end,
+    })
+    api.Value = state
+    return api
 end
 
 local function addSlider(page, opts)
     opts = opts or {}
     local min, max = opts.Min or 0, opts.Max or 100
     local decimals = opts.Decimals or 0
-    local value = math.clamp(opts.Default or min, min, max)
-    local frame = makeCard(page, 62)
-    make("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(14, 6),
-        Size = UDim2.new(1, -90, 0, 18),
-        Font = uiFont("Medium"),
-        Text = opts.Name or "Slider",
-        TextSize = 13,
-        TextColor3 = Theme.Text,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = frame,
-    })
+    local value = clamp(opts.Default or min, min, max)
+    local frame = makeCard(page, cardHeight(opts, 62))
+    bindSearch(frame, opts)
+    addNameBlock(frame, opts, 90)
     local valueLabel = make("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.new(1, -78, 0, 6),
@@ -661,6 +929,7 @@ local function addSlider(page, opts)
         TextXAlignment = Enum.TextXAlignment.Right,
         Parent = frame,
     })
+    paint(valueLabel, "TextColor3", "Accent")
     local bar = make("Frame", {
         Size = UDim2.new(1, -28, 0, 8),
         Position = UDim2.fromOffset(14, 36),
@@ -668,6 +937,7 @@ local function addSlider(page, opts)
         BorderSizePixel = 0,
         Parent = frame,
     })
+    paint(bar, "BackgroundColor3", "Track")
     corner(bar, 4)
     local fill = make("Frame", {
         Size = UDim2.new((value - min) / math.max(max - min, 1e-6), 0, 1, 0),
@@ -675,6 +945,7 @@ local function addSlider(page, opts)
         BorderSizePixel = 0,
         Parent = bar,
     })
+    paint(fill, "BackgroundColor3", "Accent")
     corner(fill, 4)
     local handle = make("Frame", {
         Size = UDim2.fromOffset(14, 14),
@@ -685,6 +956,7 @@ local function addSlider(page, opts)
         ZIndex = 2,
         Parent = bar,
     })
+    paint(handle, "BackgroundColor3", "Text")
     corner(handle, 7)
     local hit = make("TextButton", {
         Size = UDim2.new(1, 0, 0, 22),
@@ -697,7 +969,7 @@ local function addSlider(page, opts)
     })
     local dragging = false
     local function set(v, fire)
-        value = math.clamp(v, min, max)
+        value = clamp(v, min, max)
         if decimals > 0 then
             local m = 10 ^ decimals
             value = math.floor(value * m + 0.5) / m
@@ -715,7 +987,7 @@ local function addSlider(page, opts)
     end
     local function fromX(x)
         local a, w = bar.AbsolutePosition.X, math.max(bar.AbsoluteSize.X, 1)
-        set(min + math.clamp((x - a) / w, 0, 1) * (max - min), true)
+        set(min + clamp((x - a) / w, 0, 1) * (max - min), true)
     end
     hit.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -734,11 +1006,16 @@ local function addSlider(page, opts)
             dragging = false
         end
     end)
-    return { Set = set, Get = function() return value end }
+    local api = makeFlag(opts, function()
+        return value
+    end, set)
+    api.Value = value
+    return api
 end
 
 local function addDropdown(page, screenGui, opts)
     opts = opts or {}
+    local multi = opts.Multi == true
     local options = {}
     for _, opt in ipairs(opts.Options or {}) do
         if typeof(opt) == "table" then
@@ -748,25 +1025,32 @@ local function addDropdown(page, screenGui, opts)
         end
     end
     local selected = options[1]
+    local selectedSet = {}
+    local function defaultIsOn(it)
+        local d = opts.Default
+        if type(d) == "table" then
+            for _, x in ipairs(d) do
+                if x == it.id or x == it.label then
+                    return true
+                end
+            end
+            return false
+        end
+        return it.id == d or it.label == d
+    end
     for _, it in ipairs(options) do
-        if it.id == opts.Default or it.label == opts.Default then
+        if defaultIsOn(it) then
             selected = it
-            break
+            selectedSet[it.id] = true
         end
     end
+    if multi and next(selectedSet) == nil and options[1] then
+        -- leave empty until user picks
+    end
 
-    local frame = makeCard(page, 44)
-    make("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(14, 0),
-        Size = UDim2.new(0.42, 0, 1, 0),
-        Font = uiFont("Medium"),
-        Text = opts.Name or "List",
-        TextSize = 13,
-        TextColor3 = Theme.Text,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = frame,
-    })
+    local frame = makeCard(page, cardHeight(opts, 44))
+    bindSearch(frame, opts)
+    addNameBlock(frame, opts, 150)
     local openBtn = make("TextButton", {
         Size = UDim2.fromOffset(128, 28),
         Position = UDim2.new(1, -142, 0.5, -14),
@@ -775,20 +1059,37 @@ local function addDropdown(page, screenGui, opts)
         AutoButtonColor = false,
         Parent = frame,
     })
+    paint(openBtn, "BackgroundColor3", "Panel")
     corner(openBtn, 8)
     stroke(openBtn, Theme.AccentDim, 1, 0.35)
+    local function multiLabel()
+        local labels = {}
+        for _, it in ipairs(options) do
+            if selectedSet[it.id] then
+                table.insert(labels, it.label)
+            end
+        end
+        if #labels == 0 then
+            return "—"
+        end
+        if #labels > 2 then
+            return tostring(#labels) .. " selected"
+        end
+        return table.concat(labels, ", ")
+    end
     local openLabel = make("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(10, 0),
         Size = UDim2.new(1, -28, 1, 0),
         Font = Enum.Font.GothamBold,
-        Text = selected and selected.label or "—",
+        Text = multi and multiLabel() or (selected and selected.label or "—"),
         TextSize = 11,
         TextColor3 = Theme.Accent,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
         Parent = openBtn,
     })
+    paint(openLabel, "TextColor3", "Accent")
     make("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.new(1, -18, 0, 0),
@@ -809,6 +1110,7 @@ local function addDropdown(page, screenGui, opts)
         ClipsDescendants = true,
         Parent = screenGui,
     })
+    paint(drop, "BackgroundColor3", "Bg")
     corner(drop, 10)
     stroke(drop, Theme.Stroke, 1, 0.2)
     local dropList = make("ScrollingFrame", {
@@ -821,6 +1123,7 @@ local function addDropdown(page, screenGui, opts)
         ZIndex = 81,
         Parent = drop,
     })
+    paint(dropList, "ScrollBarImageColor3", "Accent")
     pcall(function()
         local autoY = enumItem("AutomaticSize", "Y")
         if autoY then
@@ -849,25 +1152,89 @@ local function addDropdown(page, screenGui, opts)
         dropdownIgnoreUntil = tick() + 0.2
     end
 
+    local function emit()
+        if multi then
+            local ids = {}
+            for _, it in ipairs(options) do
+                if selectedSet[it.id] then
+                    table.insert(ids, it.id)
+                end
+            end
+            if opts.Callback then
+                pcall(opts.Callback, ids)
+            end
+        else
+            if opts.Callback and selected then
+                pcall(opts.Callback, selected.id, selected)
+            end
+        end
+    end
+
+    local function refreshRows()
+        for _, child in ipairs(dropList:GetChildren()) do
+            if child:IsA("TextButton") then
+                local mark = child:FindFirstChild("Mark")
+                local id = child:GetAttribute("YugenOptId")
+                if mark then
+                    local on = (not multi and selected and selected.id == id) or (multi and selectedSet[id])
+                    mark.Text = on and "●" or "○"
+                end
+            end
+        end
+    end
+
     for _, it in ipairs(options) do
         local row = make("TextButton", {
             Size = UDim2.new(1, 0, 0, 26),
             BackgroundColor3 = Theme.Card,
-            Text = "  " .. it.label,
-            Font = uiFont("Medium"),
-            TextSize = 12,
-            TextColor3 = Theme.Text,
-            TextXAlignment = Enum.TextXAlignment.Left,
+            Text = "",
             AutoButtonColor = false,
             ZIndex = 82,
             Parent = dropList,
         })
+        paint(row, "BackgroundColor3", "Card")
+        pcall(function()
+            row:SetAttribute("YugenOptId", it.id)
+        end)
         corner(row, 6)
+        local mark = make("TextLabel", {
+            Name = "Mark",
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(6, 0),
+            Size = UDim2.fromOffset(16, 26),
+            Font = Enum.Font.GothamBold,
+            Text = ((multi and selectedSet[it.id]) or (not multi and selected and selected.id == it.id)) and "●" or "○",
+            TextSize = 11,
+            TextColor3 = Theme.Accent,
+            ZIndex = 83,
+            Parent = row,
+        })
+        paint(mark, "TextColor3", "Accent")
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(24, 0),
+            Size = UDim2.new(1, -28, 1, 0),
+            Font = uiFont("Medium"),
+            Text = it.label,
+            TextSize = 12,
+            TextColor3 = Theme.Text,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 83,
+            Parent = row,
+        })
         row.MouseButton1Click:Connect(function()
-            selected = it
-            openLabel.Text = it.label
-            close()
-            if opts.Callback then pcall(opts.Callback, it.id, it) end
+            if multi then
+                selectedSet[it.id] = not selectedSet[it.id]
+                openLabel.Text = multiLabel()
+                refreshRows()
+                emit()
+            else
+                selected = it
+                openLabel.Text = it.label
+                refreshRows()
+                close()
+                emit()
+            end
         end)
         row.MouseEnter:Connect(function()
             tween(row, { BackgroundColor3 = Theme.AccentDim }, 0.1)
@@ -881,38 +1248,56 @@ local function addDropdown(page, screenGui, opts)
         if drop.Visible then close() else open() end
     end)
 
-    return {
-        Set = function(id)
+    local function getValue()
+        if multi then
+            local ids = {}
             for _, it in ipairs(options) do
-                if it.id == id or it.label == id then
-                    selected = it
-                    openLabel.Text = it.label
-                    break
+                if selectedSet[it.id] then
+                    table.insert(ids, it.id)
                 end
             end
-        end,
-        Get = function()
-            return selected and selected.id
-        end,
-    }
+            return ids
+        end
+        return selected and selected.id
+    end
+    local function setValue(id, fire)
+        if multi then
+            selectedSet = {}
+            local list = type(id) == "table" and id or { id }
+            for _, x in ipairs(list) do
+                selectedSet[x] = true
+            end
+            openLabel.Text = multiLabel()
+            refreshRows()
+            if fire ~= false then
+                emit()
+            end
+            return
+        end
+        for _, it in ipairs(options) do
+            if it.id == id or it.label == id then
+                selected = it
+                openLabel.Text = it.label
+                refreshRows()
+                if fire ~= false then
+                    emit()
+                end
+                break
+            end
+        end
+    end
+    local api = makeFlag(opts, getValue, setValue)
+    api.Value = getValue()
+    return api
 end
 
 local function addColorPicker(page, screenGui, opts)
     opts = opts or {}
     local current = opts.Default or Theme.Accent
     local h, s, v = Color3.toHSV(current)
-    local frame = makeCard(page, 44)
-    make("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(14, 0),
-        Size = UDim2.new(1, -170, 1, 0),
-        Font = uiFont("Medium"),
-        Text = opts.Name or "Color",
-        TextSize = 13,
-        TextColor3 = Theme.Text,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = frame,
-    })
+    local frame = makeCard(page, cardHeight(opts, 44))
+    bindSearch(frame, opts)
+    addNameBlock(frame, opts, 170)
     local swatch = make("TextButton", {
         Size = UDim2.fromOffset(28, 28),
         Position = UDim2.new(1, -154, 0.5, -14),
@@ -1193,26 +1578,43 @@ local function addColorPicker(page, screenGui, opts)
         close()
     end)
 
-    return { Set = setColor, Get = function() return current end }
+    local api = makeFlag(opts, function()
+        return current
+    end, function(c, fire)
+        setColor(c, fire)
+    end)
+    api.Value = current
+    return api
 end
 
 local function addKeybind(page, opts)
     opts = opts or {}
     local current = opts.Default or Enum.KeyCode.E
-    local frame = makeCard(page, 44)
-    make("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(14, 0),
-        Size = UDim2.new(0.55, 0, 1, 0),
-        Font = uiFont("Medium"),
-        Text = opts.Name or "Keybind",
-        TextSize = 13,
-        TextColor3 = Theme.Text,
-        TextXAlignment = Enum.TextXAlignment.Left,
+    local mode = opts.Mode or "Toggle"
+    if mode ~= "Always" and mode ~= "Hold" and mode ~= "Toggle" then
+        mode = "Toggle"
+    end
+    local held = false
+    local toggled = false
+    local frame = makeCard(page, cardHeight(opts, 44))
+    bindSearch(frame, opts)
+    addNameBlock(frame, opts, 170)
+    local modeBtn = make("TextButton", {
+        Size = UDim2.fromOffset(52, 28),
+        Position = UDim2.new(1, -162, 0.5, -14),
+        BackgroundColor3 = Theme.Panel,
+        Text = mode,
+        Font = Enum.Font.GothamBold,
+        TextSize = 9,
+        TextColor3 = Theme.Muted,
+        AutoButtonColor = false,
         Parent = frame,
     })
+    paint(modeBtn, "BackgroundColor3", "Panel")
+    paint(modeBtn, "TextColor3", "Muted")
+    corner(modeBtn, 8)
     local button = make("TextButton", {
-        Size = UDim2.fromOffset(90, 28),
+        Size = UDim2.fromOffset(72, 28),
         Position = UDim2.new(1, -104, 0.5, -14),
         BackgroundColor3 = Theme.Panel,
         Text = current.Name,
@@ -1222,8 +1624,32 @@ local function addKeybind(page, opts)
         AutoButtonColor = false,
         Parent = frame,
     })
+    paint(button, "BackgroundColor3", "Panel")
+    paint(button, "TextColor3", "Accent")
     corner(button, 8)
     stroke(button, Theme.AccentDim, 1, 0.35)
+    local function getState()
+        if mode == "Always" then
+            return true
+        end
+        if mode == "Hold" then
+            return held
+        end
+        return toggled
+    end
+    local function cycleMode()
+        if mode == "Toggle" then
+            mode = "Hold"
+        elseif mode == "Hold" then
+            mode = "Always"
+        else
+            mode = "Toggle"
+        end
+        modeBtn.Text = mode
+        toggled = false
+        held = false
+    end
+    modeBtn.MouseButton1Click:Connect(cycleMode)
     local listening, conn
     button.MouseButton1Click:Connect(function()
         if listening then return end
@@ -1246,7 +1672,44 @@ local function addKeybind(page, opts)
             end
         end)
     end)
-    return { Set = function(k) current = k button.Text = k.Name end, Get = function() return current end }
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe or listening then return end
+        if input.KeyCode ~= current then return end
+        if mode == "Hold" then
+            held = true
+        elseif mode == "Toggle" then
+            toggled = not toggled
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.KeyCode == current then
+            held = false
+        end
+    end)
+    local api = makeFlag(opts, function()
+        return current
+    end, function(k, fire)
+        if k then
+            current = k
+            button.Text = k.Name
+            if fire ~= false and opts.Callback then
+                pcall(opts.Callback, current)
+            end
+        end
+    end, {
+        GetState = getState,
+        SetMode = function(m)
+            if m == "Always" or m == "Hold" or m == "Toggle" then
+                mode = m
+                modeBtn.Text = mode
+            end
+        end,
+        GetMode = function()
+            return mode
+        end,
+    })
+    api.Value = current
+    return api
 end
 
 local function addButton(page, opts)
@@ -1261,6 +1724,9 @@ local function addButton(page, opts)
         AutoButtonColor = false,
         Parent = page,
     })
+    bindSearch(btn, opts)
+    paint(btn, "BackgroundColor3", opts.Danger and "Danger" or "Card")
+    paint(btn, "TextColor3", "Text")
     corner(btn, 10)
     stroke(btn, opts.Danger and Theme.Danger or Theme.Stroke, 1, opts.Danger and 0.2 or 0.4)
     btn.MouseEnter:Connect(function()
@@ -1276,7 +1742,13 @@ local function addButton(page, opts)
     btn.MouseButton1Click:Connect(function()
         if opts.Callback then pcall(opts.Callback) end
     end)
-    return btn
+    local api = makeFlag(opts, function()
+        return true
+    end, function()
+        if opts.Callback then pcall(opts.Callback) end
+    end)
+    api.Instance = btn
+    return api
 end
 
 --------------------------------------------------------------------
@@ -1320,8 +1792,10 @@ function YugenUI:CreateWindow(config)
         ClipsDescendants = true,
         Parent = screenGui,
     })
+    paint(main, "BackgroundColor3", "Bg")
     corner(main, 14)
-    stroke(main, Theme.Stroke, 1, 0.15)
+    local mainStroke = stroke(main, Theme.Stroke, 1, 0.15)
+    paint(mainStroke, "Color", "Stroke")
 
     local titleBar = make("Frame", {
         Size = UDim2.new(1, 0, 0, 46),
@@ -1336,6 +1810,7 @@ function YugenUI:CreateWindow(config)
         BorderSizePixel = 0,
         Parent = titleBar,
     })
+    paint(brandDot, "BackgroundColor3", "Accent")
     corner(brandDot, 5)
 
     make("TextLabel", {
@@ -1376,6 +1851,38 @@ function YugenUI:CreateWindow(config)
         Parent = titleBar,
     })
     corner(closeBtn, 8)
+    paint(closeBtn, "BackgroundColor3", "Card")
+
+    local minBtn = make("TextButton", {
+        Size = UDim2.fromOffset(28, 28),
+        Position = UDim2.new(1, -74, 0.5, -14),
+        BackgroundColor3 = Theme.Card,
+        Text = "–",
+        Font = Enum.Font.GothamBold,
+        TextSize = 16,
+        TextColor3 = Theme.Muted,
+        AutoButtonColor = false,
+        Parent = titleBar,
+    })
+    corner(minBtn, 8)
+    paint(minBtn, "BackgroundColor3", "Card")
+
+    local searchBox = make("TextBox", {
+        Size = UDim2.fromOffset(120, 26),
+        Position = UDim2.new(1, -202, 0.5, -13),
+        BackgroundColor3 = Theme.Panel,
+        BorderSizePixel = 0,
+        Font = uiFont("Regular"),
+        PlaceholderText = "Search…",
+        Text = "",
+        TextSize = 11,
+        TextColor3 = Theme.Text,
+        ClearTextOnFocus = false,
+        Parent = titleBar,
+    })
+    corner(searchBox, 8)
+    paint(searchBox, "BackgroundColor3", "Panel")
+    paint(searchBox, "TextColor3", "Text")
 
     local sidebar = make("Frame", {
         Size = UDim2.new(0, 148, 1, -58),
@@ -1385,7 +1892,9 @@ function YugenUI:CreateWindow(config)
         Parent = main,
     })
     corner(sidebar, 12)
-    stroke(sidebar, Theme.Stroke, 1, 0.4)
+    paint(sidebar, "BackgroundColor3", "Panel")
+    local sbStroke = stroke(sidebar, Theme.Stroke, 1, 0.4)
+    paint(sbStroke, "Color", "Stroke")
 
     local PROFILE_H = 82
     local showProfile = config.ShowProfile ~= false
@@ -1418,7 +1927,9 @@ function YugenUI:CreateWindow(config)
         Parent = main,
     })
     corner(content, 12)
-    stroke(content, Theme.Stroke, 1, 0.4)
+    paint(content, "BackgroundColor3", "Panel")
+    local ctStroke = stroke(content, Theme.Stroke, 1, 0.4)
+    paint(ctStroke, "Color", "Stroke")
 
     local pageTitle = make("TextLabel", {
         BackgroundTransparency = 1,
@@ -1885,7 +2396,9 @@ function YugenUI:CreateWindow(config)
         Main = main,
         Tabs = {},
         Current = nil,
+        Flags = YugenUI.Options,
     }
+    local toggleKey = config.ToggleKey or Enum.KeyCode.RightShift
 
     local function switchTab(name)
         local tab = Window.Tabs[name]
@@ -1933,7 +2446,7 @@ function YugenUI:CreateWindow(config)
             end
             return c
         end)() + 1))
-        local icon = tabConfig.Icon or ">"
+        local icon = resolveIcon(tabConfig.Icon)
 
         local btn = make("TextButton", {
             Size = UDim2.new(1, 0, 0, 34),
@@ -1943,6 +2456,7 @@ function YugenUI:CreateWindow(config)
             Parent = nav,
         })
         corner(btn, 10)
+        paint(btn, "BackgroundColor3", "Card")
         local label = make("TextLabel", {
             BackgroundTransparency = 1,
             Position = UDim2.fromOffset(12, 0),
@@ -1954,6 +2468,7 @@ function YugenUI:CreateWindow(config)
             TextXAlignment = Enum.TextXAlignment.Left,
             Parent = btn,
         })
+        paint(label, "TextColor3", "Muted")
 
         local shell = make("Frame", {
             Name = name,
@@ -2000,10 +2515,10 @@ function YugenUI:CreateWindow(config)
         }
 
         function Tab:Section(title)
-            addSection(page, title)
+            return addSection(page, title)
         end
         function Tab:Label(text)
-            addLabel(page, text)
+            return addLabel(page, text)
         end
         function Tab:Toggle(o)
             return addToggle(page, o)
@@ -2026,6 +2541,23 @@ function YugenUI:CreateWindow(config)
         function Tab:Button(o)
             return addButton(page, o)
         end
+        function Tab:Paragraph(o)
+            return addParagraph(page, o)
+        end
+        function Tab:Input(o)
+            return addInput(page, o)
+        end
+        Tab.AddToggle = Tab.Toggle
+        Tab.AddSlider = Tab.Slider
+        Tab.AddDropdown = Tab.Dropdown
+        Tab.AddButton = Tab.Button
+        Tab.AddParagraph = Tab.Paragraph
+        Tab.AddInput = Tab.Input
+        Tab.AddKeybind = Tab.Keybind
+        Tab.AddColorpicker = Tab.ColorPicker
+        Tab.AddToggleKeybind = Tab.ToggleKeybind
+        Tab.AddLabel = Tab.Label
+        Tab.Colorpicker = Tab.ColorPicker
 
         Window.Tabs[name] = Tab
         if Window.Current == nil then
@@ -2058,14 +2590,329 @@ function YugenUI:CreateWindow(config)
         end
     end
 
+    local minimized = false
+    local savedSize = Vector2.new(width, height)
+    local function applySearch(q)
+        q = string.lower(tostring(q or ""))
+        for _, tab in pairs(Window.Tabs) do
+            local pg = tab.Page
+            if pg then
+                for _, child in ipairs(pg:GetChildren()) do
+                    if child:IsA("GuiObject") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
+                        local label = ""
+                        pcall(function()
+                            label = child:GetAttribute("YugenSearch") or ""
+                        end)
+                        child.Visible = (q == "" or string.find(label, q, 1, true) ~= nil)
+                    end
+                end
+            end
+        end
+    end
+    searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        applySearch(searchBox.Text)
+    end)
+
+    function Window:Minimize()
+        minimized = not minimized
+        sidebar.Visible = not minimized
+        content.Visible = not minimized
+        searchBox.Visible = not minimized
+        if minimized then
+            savedSize = Vector2.new(main.AbsoluteSize.X, main.AbsoluteSize.Y)
+            tween(main, { Size = UDim2.fromOffset(280, 48) }, 0.2)
+        else
+            tween(main, { Size = UDim2.fromOffset(savedSize.X, savedSize.Y) }, 0.2)
+        end
+    end
+    minBtn.MouseButton1Click:Connect(function()
+        Window:Minimize()
+    end)
+
+    function Window:Dialog(cfg)
+        cfg = cfg or {}
+        local overlay = make("Frame", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 0.45,
+            ZIndex = 80,
+            Parent = main,
+        })
+        local panel = make("Frame", {
+            Size = UDim2.fromOffset(300, 170),
+            Position = UDim2.new(0.5, -150, 0.5, -85),
+            BackgroundColor3 = Theme.Bg,
+            ZIndex = 81,
+            Parent = overlay,
+        })
+        paint(panel, "BackgroundColor3", "Bg")
+        corner(panel, 14)
+        stroke(panel, Theme.Stroke, 1, 0.15)
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(16, 12),
+            Size = UDim2.new(1, -32, 0, 22),
+            Font = uiFont("Bold"),
+            Text = cfg.Title or "Dialog",
+            TextSize = 15,
+            TextColor3 = Theme.Text,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 82,
+            Parent = panel,
+        })
+        make("TextLabel", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(16, 40),
+            Size = UDim2.new(1, -32, 0, 56),
+            Font = uiFont("Regular"),
+            Text = cfg.Content or "",
+            TextSize = 12,
+            TextColor3 = Theme.Muted,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 82,
+            Parent = panel,
+        })
+        local buttons = cfg.Buttons or { { Title = "OK" } }
+        for i, b in ipairs(buttons) do
+            local btn = make("TextButton", {
+                Size = UDim2.new(1 / #buttons, -10, 0, 32),
+                Position = UDim2.new((i - 1) / #buttons, 8, 1, -44),
+                BackgroundColor3 = i == 1 and Theme.AccentDim or Theme.Card,
+                Text = b.Title or "OK",
+                Font = uiFont("Bold"),
+                TextSize = 12,
+                TextColor3 = Theme.Text,
+                AutoButtonColor = false,
+                ZIndex = 82,
+                Parent = panel,
+            })
+            corner(btn, 8)
+            btn.MouseButton1Click:Connect(function()
+                overlay:Destroy()
+                if b.Callback then
+                    pcall(b.Callback)
+                end
+            end)
+        end
+        return overlay
+    end
+
+    function Window:ToggleTransparency(on)
+        if on == nil then
+            on = not YugenUI.Transparency
+        end
+        YugenUI.Transparency = not not on
+        local t = YugenUI.Transparency and 0.25 or 0
+        main.BackgroundTransparency = t
+        sidebar.BackgroundTransparency = t
+        content.BackgroundTransparency = t
+    end
+
+    function Window:ToggleAcrylic(on)
+        YugenUI.Acrylic = not not on
+        if YugenUI.Acrylic then
+            pcall(function()
+                local Lighting = game:GetService("Lighting")
+                local dof = Lighting:FindFirstChild("YugenAcrylic")
+                if not dof then
+                    dof = Instance.new("DepthOfFieldEffect")
+                    dof.Name = "YugenAcrylic"
+                    dof.FarIntensity = 0.4
+                    dof.FocusDistance = 0.05
+                    dof.InFocusRadius = 0.1
+                    dof.NearIntensity = 0.8
+                    dof.Parent = Lighting
+                end
+                dof.Enabled = true
+            end)
+        else
+            pcall(function()
+                local dof = game:GetService("Lighting"):FindFirstChild("YugenAcrylic")
+                if dof then
+                    dof.Enabled = false
+                end
+            end)
+        end
+    end
+
+    if config.Transparency then
+        Window:ToggleTransparency(true)
+    end
+    if config.Acrylic then
+        Window:ToggleAcrylic(true)
+    end
+
+    local function serializeValue(v)
+        if typeof(v) == "Color3" then
+            return { __c = true, r = v.R, g = v.G, b = v.B }
+        end
+        if typeof(v) == "EnumItem" then
+            return { __e = true, name = v.Name }
+        end
+        return v
+    end
+    local function deserializeValue(v)
+        if type(v) == "table" and v.__c then
+            return Color3.new(v.r, v.g, v.b)
+        end
+        if type(v) == "table" and v.__e and Enum.KeyCode[v.name] then
+            return Enum.KeyCode[v.name]
+        end
+        return v
+    end
+
+    function Window:SaveConfig(name)
+        name = tostring(name or "default"):gsub("[^%w%-%_]", "")
+        if name == "" then
+            name = "default"
+        end
+        if typeof(makefolder) == "function" then
+            pcall(makefolder, "yugen")
+            pcall(makefolder, "yugen/configs")
+        end
+        if typeof(writefile) ~= "function" then
+            YugenUI:Notify("Config", "writefile unavailable", 3)
+            return false
+        end
+        local data = { theme = YugenUI.ThemeName, flags = {} }
+        for k, api in pairs(YugenUI.Options) do
+            if api and api.Get then
+                data.flags[k] = serializeValue(api.Get())
+            end
+        end
+        local HttpService = game:GetService("HttpService")
+        local ok, json = pcall(function()
+            return HttpService:JSONEncode(data)
+        end)
+        if not ok then
+            return false
+        end
+        pcall(writefile, "yugen/configs/" .. name .. ".json", json)
+        YugenUI:Notify("Config", "Saved " .. name, 2)
+        return true
+    end
+
+    function Window:LoadConfig(name)
+        name = tostring(name or "default"):gsub("[^%w%-%_]", "")
+        local path = "yugen/configs/" .. name .. ".json"
+        if typeof(readfile) ~= "function" or typeof(isfile) ~= "function" or not isfile(path) then
+            YugenUI:Notify("Config", "Not found", 3)
+            return false
+        end
+        local HttpService = game:GetService("HttpService")
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(path))
+        end)
+        if not ok or type(data) ~= "table" then
+            return false
+        end
+        if type(data.theme) == "string" then
+            Window:SetTheme(data.theme)
+        end
+        if type(data.flags) == "table" then
+            for k, v in pairs(data.flags) do
+                local api = YugenUI.Options[k]
+                if api and api.Set then
+                    pcall(api.Set, deserializeValue(v), true)
+                end
+            end
+        end
+        YugenUI:Notify("Config", "Loaded " .. name, 2)
+        return true
+    end
+
+    function Window:ListConfigs()
+        local names = {}
+        if typeof(listfiles) == "function" then
+            local ok, files = pcall(listfiles, "yugen/configs")
+            if ok and type(files) == "table" then
+                for _, f in ipairs(files) do
+                    local n = tostring(f):match("([^/\\]+)%.json$")
+                    if n then
+                        table.insert(names, n)
+                    end
+                end
+            end
+        end
+        return names
+    end
+
+    function Window:BuildSettingsTab(tab)
+        if not tab then
+            return
+        end
+        tab:Section("Interface")
+        local themeOpts = {}
+        for _, n in ipairs({ "Teal", "Violet", "Crimson", "Ocean", "Amber", "Midnight" }) do
+            table.insert(themeOpts, { id = n, label = n })
+        end
+        tab:Dropdown({
+            Name = "Theme",
+            Flag = "UI_Theme",
+            Options = themeOpts,
+            Default = YugenUI.ThemeName,
+            Callback = function(id)
+                Window:SetTheme(id)
+            end,
+        })
+        tab:Toggle({
+            Name = "Transparency",
+            Flag = "UI_Transparency",
+            Default = YugenUI.Transparency,
+            Callback = function(v)
+                Window:ToggleTransparency(v)
+            end,
+        })
+        tab:Toggle({
+            Name = "Acrylic blur",
+            Description = "May be detectable. Needs graphics 8+",
+            Flag = "UI_Acrylic",
+            Default = YugenUI.Acrylic,
+            Callback = function(v)
+                Window:ToggleAcrylic(v)
+            end,
+        })
+        tab:Keybind({
+            Name = "Minimize bind",
+            Default = config.ToggleKey or Enum.KeyCode.RightShift,
+            Callback = function(key)
+                toggleKey = key
+            end,
+        })
+        tab:Section("Configs")
+        tab:Input({
+            Name = "Config name",
+            Flag = "UI_ConfigName",
+            Default = "default",
+            Placeholder = "default",
+        })
+        tab:Button({
+            Name = "Save config",
+            Callback = function()
+                local n = YugenUI.Options.UI_ConfigName and YugenUI.Options.UI_ConfigName.Get() or "default"
+                Window:SaveConfig(n)
+            end,
+        })
+        tab:Button({
+            Name = "Load config",
+            Callback = function()
+                local n = YugenUI.Options.UI_ConfigName and YugenUI.Options.UI_ConfigName.Get() or "default"
+                Window:LoadConfig(n)
+            end,
+        })
+    end
+
     function Window:SetTheme(name)
         if applyTheme(name) then
-            brandDot.BackgroundColor3 = Theme.Accent
-            main.BackgroundColor3 = Theme.Bg
-            sidebar.BackgroundColor3 = Theme.Panel
-            content.BackgroundColor3 = Theme.Panel
+            restyle(screenGui)
+            if Window.Current then
+                switchTab(Window.Current)
+            end
             YugenUI:Notify("Theme", name .. " applied", 2)
+            return true
         end
+        return false
     end
 
     function Window:Destroy()
@@ -2082,7 +2929,6 @@ function YugenUI:CreateWindow(config)
         Window:Destroy()
     end)
 
-    local toggleKey = config.ToggleKey or Enum.KeyCode.RightShift
     UserInputService.InputBegan:Connect(function(input, gpe)
         if gpe then return end
         if input.KeyCode == toggleKey then
@@ -2095,7 +2941,15 @@ function YugenUI:CreateWindow(config)
 end
 
 function YugenUI:SetTheme(name)
-    return applyTheme(name)
+    if applyTheme(name) then
+        restyle()
+        return true
+    end
+    return false
+end
+
+function YugenUI:GetThemes()
+    return { "Teal", "Violet", "Crimson", "Ocean", "Amber", "Midnight" }
 end
 
 function YugenUI:GetTheme()
