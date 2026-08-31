@@ -1,9 +1,9 @@
 --[[
-    Yugen UI Library v1.1.1,
-    Dark card UI for Roblox executor scripts. Fluent-class API, Yugen look.
+    Yugen UI Library v1.2.0,
+    Fluent-inspired dark UI for Roblox executor scripts. Yugen API.
 
     Load:
-      local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.1.1"))()
+      local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.2.0"))()
 
     Window:
       local Window = YugenUI:CreateWindow({
@@ -42,10 +42,10 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.1.1",
+    Version = "1.2.0",
     Windows = {},
     Options = {},
-    ThemeName = "Teal",
+    ThemeName = "Fluent",
     Transparency = false,
     Acrylic = false,
 }
@@ -115,22 +115,37 @@ end
 -- Theme
 --------------------------------------------------------------------
 local Theme = {
-    Bg = Color3.fromRGB(10, 12, 16),
-    Panel = Color3.fromRGB(16, 19, 26),
-    Card = Color3.fromRGB(22, 26, 34),
-    CardHover = Color3.fromRGB(28, 33, 44),
-    Stroke = Color3.fromRGB(42, 50, 64),
-    Text = Color3.fromRGB(236, 240, 245),
-    Muted = Color3.fromRGB(130, 140, 158),
-    Accent = Color3.fromRGB(56, 214, 186),
-    AccentDim = Color3.fromRGB(32, 120, 108),
+    Bg = Color3.fromRGB(19, 19, 22),
+    Panel = Color3.fromRGB(24, 24, 28),
+    Card = Color3.fromRGB(31, 31, 36),
+    CardHover = Color3.fromRGB(39, 39, 45),
+    Stroke = Color3.fromRGB(55, 55, 64),
+    Text = Color3.fromRGB(245, 245, 247),
+    Muted = Color3.fromRGB(164, 164, 178),
+    Accent = Color3.fromRGB(139, 124, 246),
+    AccentDim = Color3.fromRGB(67, 58, 112),
     Danger = Color3.fromRGB(235, 78, 92),
     Warn = Color3.fromRGB(255, 186, 73),
     Success = Color3.fromRGB(80, 220, 140),
-    Track = Color3.fromRGB(35, 42, 55),
+    Track = Color3.fromRGB(50, 50, 58),
 }
 
 local ThemePresets = {
+    Fluent = {
+        Bg = Color3.fromRGB(19, 19, 22),
+        Panel = Color3.fromRGB(24, 24, 28),
+        Card = Color3.fromRGB(31, 31, 36),
+        CardHover = Color3.fromRGB(39, 39, 45),
+        Stroke = Color3.fromRGB(55, 55, 64),
+        Text = Color3.fromRGB(245, 245, 247),
+        Muted = Color3.fromRGB(164, 164, 178),
+        Accent = Color3.fromRGB(139, 124, 246),
+        AccentDim = Color3.fromRGB(67, 58, 112),
+        Danger = Color3.fromRGB(235, 78, 92),
+        Warn = Color3.fromRGB(255, 186, 73),
+        Success = Color3.fromRGB(80, 220, 140),
+        Track = Color3.fromRGB(50, 50, 58),
+    },
     Teal = {
         Bg = Color3.fromRGB(10, 12, 16),
         Panel = Color3.fromRGB(16, 19, 26),
@@ -1798,6 +1813,11 @@ end)
 --------------------------------------------------------------------
 function YugenUI:CreateWindow(config)
     config = config or {}
+    -- Fluent-style aliases make the window easier to configure without changing
+    -- the existing Yugen call sites.
+    config.Name = config.Name or config.Title
+    config.Subtitle = config.Subtitle or config.SubTitle
+    config.ToggleKey = config.ToggleKey or config.MinimizeKey
     if config.Theme then
         applyTheme(config.Theme)
     end
@@ -1811,8 +1831,9 @@ function YugenUI:CreateWindow(config)
         Parent = getUiParent(),
     })
 
-    local width = config.Width or 560
-    local height = config.Height or 400
+    local requestedSize = config.Size
+    local width = config.Width or (requestedSize and requestedSize.X.Offset) or 560
+    local height = config.Height or (requestedSize and requestedSize.Y.Offset) or 400
 
     local main = make("Frame", {
         Size = UDim2.fromOffset(width, height),
@@ -1823,33 +1844,44 @@ function YugenUI:CreateWindow(config)
         Parent = screenGui,
     })
     paint(main, "BackgroundColor3", "Bg")
-    corner(main, 14)
-    local mainStroke = stroke(main, Theme.Stroke, 1, 0.15)
+    corner(main, 9)
+    local mainStroke = stroke(main, Theme.Stroke, 1, 0.35)
     paint(mainStroke, "Color", "Stroke")
 
     local titleBar = make("Frame", {
-        Size = UDim2.new(1, 0, 0, 46),
+        Size = UDim2.new(1, 0, 0, 52),
         BackgroundTransparency = 1,
         Parent = main,
     })
 
     local brandDot = make("Frame", {
-        Size = UDim2.fromOffset(10, 10),
-        Position = UDim2.fromOffset(16, 18),
+        Size = UDim2.fromOffset(24, 24),
+        Position = UDim2.fromOffset(16, 14),
         BackgroundColor3 = Theme.Accent,
         BorderSizePixel = 0,
         Parent = titleBar,
     })
     paint(brandDot, "BackgroundColor3", "Accent")
-    corner(brandDot, 5)
+    corner(brandDot, 7)
+
+    local brandMark = make("TextLabel", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Font = uiFont("Bold"),
+        Text = "Y",
+        TextSize = 13,
+        TextColor3 = Theme.Text,
+        Parent = brandDot,
+    })
+    paint(brandMark, "TextColor3", "Text")
 
     local titleLabel = make("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(34, 0),
-        Size = UDim2.new(0, 200, 1, 0),
+        Position = UDim2.fromOffset(50, 7),
+        Size = UDim2.new(0, 210, 0, 20),
         Font = Enum.Font.GothamBold,
         Text = config.Name or "Yugen",
-        TextSize = 15,
+        TextSize = 14,
         TextColor3 = Theme.Text,
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = titleBar,
@@ -1859,8 +1891,8 @@ function YugenUI:CreateWindow(config)
     if config.Subtitle then
         local subLabel = make("TextLabel", {
             BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(34 + (#(config.Name or "Yugen") * 8) + 24, 0),
-            Size = UDim2.new(0, 160, 1, 0),
+            Position = UDim2.fromOffset(50, 25),
+            Size = UDim2.new(0, 210, 0, 16),
             Font = Enum.Font.Gotham,
             Text = config.Subtitle,
             TextSize = 12,
@@ -1873,8 +1905,8 @@ function YugenUI:CreateWindow(config)
 
     local closeBtn = make("TextButton", {
         Size = UDim2.fromOffset(28, 28),
-        Position = UDim2.new(1, -40, 0.5, -14),
-        BackgroundColor3 = Theme.Card,
+        Position = UDim2.new(1, -38, 0.5, -14),
+        BackgroundTransparency = 1,
         Text = "×",
         Font = Enum.Font.GothamBold,
         TextSize = 16,
@@ -1882,14 +1914,13 @@ function YugenUI:CreateWindow(config)
         AutoButtonColor = false,
         Parent = titleBar,
     })
-    corner(closeBtn, 8)
-    paint(closeBtn, "BackgroundColor3", "Card")
+    corner(closeBtn, 6)
     paint(closeBtn, "TextColor3", "Muted")
 
     local minBtn = make("TextButton", {
         Size = UDim2.fromOffset(28, 28),
-        Position = UDim2.new(1, -74, 0.5, -14),
-        BackgroundColor3 = Theme.Card,
+        Position = UDim2.new(1, -70, 0.5, -14),
+        BackgroundTransparency = 1,
         Text = "–",
         Font = Enum.Font.GothamBold,
         TextSize = 16,
@@ -1897,14 +1928,13 @@ function YugenUI:CreateWindow(config)
         AutoButtonColor = false,
         Parent = titleBar,
     })
-    corner(minBtn, 8)
-    paint(minBtn, "BackgroundColor3", "Card")
+    corner(minBtn, 6)
     paint(minBtn, "TextColor3", "Muted")
 
     local searchBox = make("TextBox", {
-        Size = UDim2.fromOffset(120, 26),
-        Position = UDim2.new(1, -202, 0.5, -13),
-        BackgroundColor3 = Theme.Panel,
+        Size = UDim2.fromOffset(132, 28),
+        Position = UDim2.new(1, -216, 0.5, -14),
+        BackgroundColor3 = Theme.Card,
         BorderSizePixel = 0,
         Font = uiFont("Regular"),
         PlaceholderText = "Search…",
@@ -1914,20 +1944,21 @@ function YugenUI:CreateWindow(config)
         ClearTextOnFocus = false,
         Parent = titleBar,
     })
-    corner(searchBox, 8)
-    paint(searchBox, "BackgroundColor3", "Panel")
+    corner(searchBox, 6)
+    paint(searchBox, "BackgroundColor3", "Card")
+    stroke(searchBox, Theme.Stroke, 1, 0.5)
     paint(searchBox, "TextColor3", "Text")
+    searchBox.Visible = config.Search ~= false
 
     local sidebar = make("Frame", {
-        Size = UDim2.new(0, 148, 1, -58),
-        Position = UDim2.fromOffset(12, 48),
-        BackgroundColor3 = Theme.Panel,
+        Size = UDim2.new(0, config.TabWidth or 160, 1, -52),
+        Position = UDim2.fromOffset(0, 52),
+        BackgroundColor3 = Theme.Bg,
         BorderSizePixel = 0,
         Parent = main,
     })
-    corner(sidebar, 12)
-    paint(sidebar, "BackgroundColor3", "Panel")
-    local sbStroke = stroke(sidebar, Theme.Stroke, 1, 0.4)
+    paint(sidebar, "BackgroundColor3", "Bg")
+    local sbStroke = stroke(sidebar, Theme.Stroke, 1, 0.65)
     paint(sbStroke, "Color", "Stroke")
 
     local PROFILE_H = 82
@@ -1955,15 +1986,15 @@ function YugenUI:CreateWindow(config)
     pad(nav, 2, 2, 2, 2)
 
     local content = make("Frame", {
-        Size = UDim2.new(1, -180, 1, -58),
-        Position = UDim2.fromOffset(168, 48),
+        Size = UDim2.new(1, -(config.TabWidth or 160), 1, -52),
+        Position = UDim2.fromOffset(config.TabWidth or 160, 52),
         BackgroundColor3 = Theme.Panel,
         BorderSizePixel = 0,
         Parent = main,
     })
-    corner(content, 12)
+    corner(content, 0)
     paint(content, "BackgroundColor3", "Panel")
-    local ctStroke = stroke(content, Theme.Stroke, 1, 0.4)
+    local ctStroke = stroke(content, Theme.Stroke, 1, 0.7)
     paint(ctStroke, "Color", "Stroke")
 
     local pageTitle = make("TextLabel", {
@@ -2453,6 +2484,7 @@ function YugenUI:CreateWindow(config)
             end
             if t.NavButton then
                 t.NavButton.BackgroundColor3 = active and Theme.AccentDim or Theme.Card
+                t.NavButton.BackgroundTransparency = active and 0 or 1
             end
             if t.NavLabel then
                 t.NavLabel.TextColor3 = active and Theme.Text or Theme.Muted
@@ -2486,14 +2518,15 @@ function YugenUI:CreateWindow(config)
         local icon = resolveIcon(tabConfig.Icon)
 
         local btn = make("TextButton", {
-            Size = UDim2.new(1, 0, 0, 34),
-            BackgroundColor3 = Theme.Card,
+            Size = UDim2.new(1, 0, 0, 32),
+            BackgroundColor3 = Theme.AccentDim,
+            BackgroundTransparency = 1,
             Text = "",
             AutoButtonColor = false,
             Parent = nav,
         })
-        corner(btn, 10)
-        paint(btn, "BackgroundColor3", "Card")
+        corner(btn, 6)
+        paint(btn, "BackgroundColor3", "AccentDim")
         local label = make("TextLabel", {
             BackgroundTransparency = 1,
             Position = UDim2.fromOffset(12, 0),
@@ -2655,7 +2688,7 @@ function YugenUI:CreateWindow(config)
         minimized = not minimized
         sidebar.Visible = not minimized
         content.Visible = not minimized
-        searchBox.Visible = not minimized
+        searchBox.Visible = not minimized and config.Search ~= false
         if minimized then
             savedSize = Vector2.new(main.AbsoluteSize.X, main.AbsoluteSize.Y)
             tween(main, { Size = UDim2.fromOffset(280, 48) }, 0.2)
@@ -2947,7 +2980,7 @@ function YugenUI:CreateWindow(config)
             pcall(restyle)
             pcall(function()
                 main.BackgroundColor3 = Theme.Bg
-                sidebar.BackgroundColor3 = Theme.Panel
+                sidebar.BackgroundColor3 = Theme.Bg
                 content.BackgroundColor3 = Theme.Panel
                 brandDot.BackgroundColor3 = Theme.Accent
             end)
@@ -3002,3 +3035,4 @@ function YugenUI:GetTheme()
 end
 
 return YugenUI
+
