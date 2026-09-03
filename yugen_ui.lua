@@ -1,9 +1,9 @@
 --[[
-    Yugen UI Library v1.2.0,
+    Yugen UI Library v1.3.0,
     Fluent-inspired dark UI for Roblox executor scripts. Yugen API.
 
     Load:
-      local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.2.0"))()
+      local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.3.0"))()
 
     Window:
       local Window = YugenUI:CreateWindow({
@@ -43,7 +43,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local YugenUI = {
-    Version = "1.2.0",
+    Version = "1.3.0",
     Windows = {},
     Options = {},
     ThemeName = "Fluent",
@@ -110,6 +110,58 @@ local function clamp(n, a, b)
         return b
     end
     return n
+end
+
+local inputChangedHooks = {}
+local inputBeganHooks = {}
+local inputEndedHooks = {}
+
+local function dispatch(list, ...)
+    local i = 1
+    while i <= #list do
+        local hook = list[i]
+        if hook.dead then
+            table.remove(list, i)
+        else
+            pcall(hook.fn, ...)
+            i = i + 1
+        end
+    end
+end
+
+UserInputService.InputChanged:Connect(function(input)
+    dispatch(inputChangedHooks, input)
+end)
+UserInputService.InputBegan:Connect(function(input, gpe)
+    dispatch(inputBeganHooks, input, gpe)
+end)
+UserInputService.InputEnded:Connect(function(input)
+    dispatch(inputEndedHooks, input)
+end)
+
+local function hookInput(list, fn, instance)
+    local hook = { fn = fn, dead = false }
+    table.insert(list, hook)
+    if instance then
+        pcall(function()
+            instance.AncestryChanged:Connect(function(_, parent)
+                if not parent then
+                    hook.dead = true
+                end
+            end)
+        end)
+    end
+    return hook
+end
+
+local function onInputChanged(fn, instance)
+    return hookInput(inputChangedHooks, fn, instance)
+end
+local function onInputBegan(fn, instance)
+    return hookInput(inputBeganHooks, fn, instance)
+end
+local function onInputEnded(fn, instance)
+    return hookInput(inputEndedHooks, fn, instance)
 end
 
 --------------------------------------------------------------------
@@ -423,6 +475,11 @@ local function paint(obj, prop, token)
     return obj
 end
 
+local function themedStroke(parent, token, thickness, transparency)
+    local s = stroke(parent, Theme[token] or Theme.Stroke, thickness, transparency)
+    return paint(s, "Color", token)
+end
+
 local function restyle()
     local i = 1
     while i <= #painted do
@@ -536,10 +593,13 @@ function YugenUI:Notify(title, text, duration)
     local gui = ensureToastGui()
     local stack = gui:FindFirstChild("Stack")
     local h = (sub and sub ~= "") and 72 or 56
-    local toast = make("Frame", {
+    local toast = make("TextButton", {
         Size = UDim2.new(1, 0, 0, h),
         BackgroundColor3 = Theme.Card,
         BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+        BackgroundTransparency = 1,
         Parent = stack,
     })
     paint(toast, "BackgroundColor3", "Card")
@@ -553,7 +613,7 @@ function YugenUI:Notify(title, text, duration)
         Parent = toast,
     })
     paint(bar, "BackgroundColor3", "Accent")
-    make("TextLabel", {
+    local titleL = make("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 8),
         Size = UDim2.new(1, -24, 0, 18),
@@ -564,7 +624,8 @@ function YugenUI:Notify(title, text, duration)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = toast,
     })
-    make("TextLabel", {
+    paint(titleL, "TextColor3", "Text")
+    local bodyL = make("TextLabel", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(14, 28),
         Size = UDim2.new(1, -24, 0, 18),
@@ -576,8 +637,9 @@ function YugenUI:Notify(title, text, duration)
         TextTruncate = Enum.TextTruncate.AtEnd,
         Parent = toast,
     })
+    paint(bodyL, "TextColor3", "Muted")
     if sub and sub ~= "" then
-        make("TextLabel", {
+        local subL = make("TextLabel", {
             BackgroundTransparency = 1,
             Position = UDim2.fromOffset(14, 46),
             Size = UDim2.new(1, -24, 0, 18),
@@ -588,16 +650,21 @@ function YugenUI:Notify(title, text, duration)
             TextXAlignment = Enum.TextXAlignment.Left,
             Parent = toast,
         })
+        paint(subL, "TextColor3", "Muted")
     end
-    if duration and duration > 0 then
-        delayCall(duration, function()
-            if toast.Parent then
-                tween(toast, { BackgroundTransparency = 1 }, 0.18)
-                delayCall(0.2, function()
-                    if toast.Parent then toast:Destroy() end
-                end)
-            end
+    tween(toast, { BackgroundTransparency = 0 }, 0.2)
+    local dismissed = false
+    local function dismiss()
+        if dismissed or not toast.Parent then return end
+        dismissed = true
+        tween(toast, { BackgroundTransparency = 1 }, 0.18)
+        delayCall(0.2, function()
+            if toast.Parent then toast:Destroy() end
         end)
+    end
+    toast.MouseButton1Click:Connect(dismiss)
+    if duration and duration > 0 then
+        delayCall(duration, dismiss)
     end
     return toast
 end
@@ -786,7 +853,7 @@ local function addInput(page, opts)
     paint(box, "BackgroundColor3", "Panel")
     paint(box, "TextColor3", "Accent")
     corner(box, 8)
-    stroke(box, Theme.AccentDim, 1, 0.35)
+    themedStroke(box, "AccentDim", 1, 0.35)
     local function emit()
         local t = box.Text
         if opts.Numeric then
@@ -885,7 +952,7 @@ local function addToggleKeybind(page, opts)
     paint(keyBtn, "BackgroundColor3", "Panel")
     paint(keyBtn, "TextColor3", "Accent")
     corner(keyBtn, 8)
-    stroke(keyBtn, Theme.AccentDim, 1, 0.35)
+    themedStroke(keyBtn, "AccentDim", 1, 0.35)
     local track = make("TextButton", {
         Size = UDim2.fromOffset(42, 24),
         Position = UDim2.new(1, -52, 0.5, -12),
@@ -939,6 +1006,11 @@ local function addToggleKeybind(page, opts)
     track.MouseButton1Click:Connect(function()
         set(not state, true)
     end)
+    onInputBegan(function(input, gpe)
+        if gpe or listening then return end
+        if input.KeyCode ~= currentKey or currentKey == Enum.KeyCode.Unknown then return end
+        set(not state, true)
+    end, frame)
     local api = makeFlag(opts, function()
         return state
     end, set, {
@@ -1041,17 +1113,17 @@ local function addSlider(page, opts)
             fromX(input.Position.X)
         end
     end)
-    UserInputService.InputChanged:Connect(function(input)
+    onInputChanged(function(input)
         if not dragging then return end
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             fromX(input.Position.X)
         end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
+    end, frame)
+    onInputEnded(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
-    end)
+    end, frame)
     local api = makeFlag(opts, function()
         return value
     end, set)
@@ -1107,7 +1179,7 @@ local function addDropdown(page, screenGui, opts)
     })
     paint(openBtn, "BackgroundColor3", "Panel")
     corner(openBtn, 8)
-    stroke(openBtn, Theme.AccentDim, 1, 0.35)
+    themedStroke(openBtn, "AccentDim", 1, 0.35)
     local function multiLabel()
         local labels = {}
         for _, it in ipairs(options) do
@@ -1158,7 +1230,7 @@ local function addDropdown(page, screenGui, opts)
     })
     paint(drop, "BackgroundColor3", "Bg")
     corner(drop, 10)
-    stroke(drop, Theme.Stroke, 1, 0.2)
+    themedStroke(drop, "Stroke", 1, 0.2)
     local dropList = make("ScrollingFrame", {
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
@@ -1190,10 +1262,17 @@ local function addDropdown(page, screenGui, opts)
             activeDropdownClose()
         end
         local abs, size = openBtn.AbsolutePosition, openBtn.AbsoluteSize
-        -- ScreenGui has no AbsolutePosition. Its children use viewport
-        -- coordinates, so the button's absolute position is already correct.
-        drop.Position = UDim2.fromOffset(abs.X, abs.Y + size.Y + 4)
-        drop.Size = UDim2.fromOffset(math.max(size.X, 128), math.min(28 + #options * 30, 160))
+        local width = math.max(size.X, 140)
+        local height = math.min(#options * 29 + 8, 220)
+        local camera = Workspace.CurrentCamera
+        local viewport = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+        local x = math.clamp(abs.X, 8, math.max(8, viewport.X - width - 8))
+        local y = abs.Y + size.Y + 4
+        if y + height > viewport.Y - 8 then
+            y = math.max(8, abs.Y - height - 4)
+        end
+        drop.Position = UDim2.fromOffset(x, y)
+        drop.Size = UDim2.fromOffset(width, height)
         drop.Visible = true
         activeDropdownClose = close
         dropdownIgnoreUntil = tick() + 0.2
@@ -1465,7 +1544,7 @@ local function addColorPicker(page, screenGui, opts)
         Parent = frame,
     })
     corner(swatch, 8)
-    stroke(swatch, Theme.Stroke, 1, 0.25)
+    themedStroke(swatch, "Stroke", 1, 0.25)
     local hexBox = make("TextBox", {
         Size = UDim2.fromOffset(88, 28),
         Position = UDim2.new(1, -118, 0.5, -14),
@@ -1479,7 +1558,9 @@ local function addColorPicker(page, screenGui, opts)
         Parent = frame,
     })
     corner(hexBox, 8)
-    stroke(hexBox, Theme.AccentDim, 1, 0.35)
+    paint(hexBox, "BackgroundColor3", "Panel")
+    paint(hexBox, "TextColor3", "Accent")
+    themedStroke(hexBox, "AccentDim", 1, 0.35)
 
     local picker = make("Frame", {
         Size = UDim2.fromOffset(196, 236),
@@ -1491,7 +1572,8 @@ local function addColorPicker(page, screenGui, opts)
         Parent = screenGui,
     })
     corner(picker, 12)
-    stroke(picker, Theme.Stroke, 1, 0.15)
+    paint(picker, "BackgroundColor3", "Bg")
+    themedStroke(picker, "Stroke", 1, 0.15)
 
     make("TextLabel", {
         BackgroundTransparency = 1,
@@ -1680,7 +1762,7 @@ local function addColorPicker(page, screenGui, opts)
             sync(true)
         end
     end)
-    UserInputService.InputChanged:Connect(function(input)
+    onInputChanged(function(input)
         if not picker.Visible then return end
         if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
         if dragSV then
@@ -1693,12 +1775,12 @@ local function addColorPicker(page, screenGui, opts)
             h = math.clamp((input.Position.X - a) / w, 0, 1)
             sync(true)
         end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
+    end, picker)
+    onInputEnded(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragSV, dragHue = false, false
         end
-    end)
+    end, picker)
 
     for _, preset in ipairs(COLOR_PRESETS) do
         local chip = make("TextButton", {
@@ -1723,7 +1805,7 @@ local function addColorPicker(page, screenGui, opts)
         if parsed then setColor(parsed, true) else hexBox.Text = colorToHex(current) end
     end)
 
-    UserInputService.InputBegan:Connect(function(input)
+    onInputBegan(function(input)
         if not picker.Visible then return end
         if tick() < dropdownIgnoreUntil then return end
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
@@ -1735,7 +1817,7 @@ local function addColorPicker(page, screenGui, opts)
         end
         if inside(picker) or inside(swatch) or inside(hexBox) then return end
         close()
-    end)
+    end, picker)
 
     local api = makeFlag(opts, function()
         return current
@@ -1786,7 +1868,7 @@ local function addKeybind(page, opts)
     paint(button, "BackgroundColor3", "Panel")
     paint(button, "TextColor3", "Accent")
     corner(button, 8)
-    stroke(button, Theme.AccentDim, 1, 0.35)
+    themedStroke(button, "AccentDim", 1, 0.35)
     local function getState()
         if mode == "Always" then
             return true
@@ -1831,7 +1913,7 @@ local function addKeybind(page, opts)
             end
         end)
     end)
-    UserInputService.InputBegan:Connect(function(input, gpe)
+    onInputBegan(function(input, gpe)
         if gpe or listening then return end
         if input.KeyCode ~= current then return end
         if mode == "Hold" then
@@ -1839,12 +1921,12 @@ local function addKeybind(page, opts)
         elseif mode == "Toggle" then
             toggled = not toggled
         end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
+    end, frame)
+    onInputEnded(function(input)
         if input.KeyCode == current then
             held = false
         end
-    end)
+    end, frame)
     local api = makeFlag(opts, function()
         return current
     end, function(k, fire)
@@ -2060,7 +2142,7 @@ function YugenUI:CreateWindow(config)
     })
     corner(searchBox, 6)
     paint(searchBox, "BackgroundColor3", "Card")
-    stroke(searchBox, Theme.Stroke, 1, 0.5)
+    themedStroke(searchBox, "Stroke", 1, 0.5)
     paint(searchBox, "TextColor3", "Text")
     searchBox.Visible = config.Search ~= false
 
@@ -2198,7 +2280,7 @@ function YugenUI:CreateWindow(config)
             Parent = sidebar,
         })
         corner(profileBtn, 10)
-        stroke(profileBtn, Theme.AccentDim, 1, 0.55)
+        themedStroke(profileBtn, "AccentDim", 1, 0.55)
 
         local avatarRing = make("Frame", {
             Size = UDim2.fromOffset(36, 36),
@@ -2307,7 +2389,7 @@ function YugenUI:CreateWindow(config)
             Parent = accountModal,
         })
         corner(accountPanel, 16)
-        stroke(accountPanel, Theme.Stroke, 1, 0.15)
+        themedStroke(accountPanel, "Stroke", 1, 0.15)
 
         make("TextLabel", {
             BackgroundTransparency = 1,
@@ -2380,7 +2462,7 @@ function YugenUI:CreateWindow(config)
             Parent = accountPanel,
         })
         corner(accountPlanCard, 12)
-        stroke(accountPlanCard, Theme.Stroke, 1, 0.35)
+        themedStroke(accountPlanCard, "Stroke", 1, 0.35)
         accountPlanTitle = make("TextLabel", {
             BackgroundTransparency = 1,
             Position = UDim2.fromOffset(14, 12),
@@ -2552,7 +2634,7 @@ function YugenUI:CreateWindow(config)
         end)
     end
 
-    UserInputService.InputChanged:Connect(function(input)
+    onInputChanged(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
             return
         end
@@ -2565,13 +2647,13 @@ function YugenUI:CreateWindow(config)
             local d = input.Position - dragStart
             main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
         end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
+    end, screenGui)
+    onInputEnded(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
             resizing = false
         end
-    end)
+    end, screenGui)
 
     local Window = {
         ScreenGui = screenGui,
@@ -2597,11 +2679,14 @@ function YugenUI:CreateWindow(config)
                 vis.Visible = active
             end
             if t.NavButton then
-                t.NavButton.BackgroundColor3 = active and Theme.AccentDim or Theme.Card
-                t.NavButton.BackgroundTransparency = active and 0 or 1
+                t.NavButton.BackgroundColor3 = Theme.AccentDim
+                tween(t.NavButton, { BackgroundTransparency = active and 0.15 or 1 }, 0.12)
             end
             if t.NavLabel then
-                t.NavLabel.TextColor3 = active and Theme.Text or Theme.Muted
+                tween(t.NavLabel, { TextColor3 = active and Theme.Text or Theme.Muted }, 0.12)
+            end
+            if t.ActiveBar then
+                t.ActiveBar.Visible = active
             end
             if active and t.Refresh then
                 pcall(t.Refresh)
@@ -2641,6 +2726,16 @@ function YugenUI:CreateWindow(config)
         })
         corner(btn, 6)
         paint(btn, "BackgroundColor3", "AccentDim")
+        local activeBar = make("Frame", {
+            Size = UDim2.fromOffset(3, 18),
+            Position = UDim2.new(0, 0, 0.5, -9),
+            BackgroundColor3 = Theme.Accent,
+            BorderSizePixel = 0,
+            Visible = false,
+            Parent = btn,
+        })
+        paint(activeBar, "BackgroundColor3", "Accent")
+        corner(activeBar, 2)
         local label = make("TextLabel", {
             BackgroundTransparency = 1,
             Position = UDim2.fromOffset(12, 0),
@@ -2669,7 +2764,7 @@ function YugenUI:CreateWindow(config)
             Size = UDim2.fromScale(1, 1),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
-            ScrollBarThickness = 3,
+            ScrollBarThickness = 4,
             ScrollBarImageColor3 = Theme.Accent,
             CanvasSize = UDim2.new(0, 0, 0, 0),
             Parent = shell,
@@ -2688,6 +2783,18 @@ function YugenUI:CreateWindow(config)
         btn.MouseButton1Click:Connect(function()
             switchTab(name)
         end)
+        btn.MouseEnter:Connect(function()
+            if Window.Current ~= name then
+                tween(btn, { BackgroundTransparency = 0.75 }, 0.12)
+                tween(label, { TextColor3 = Theme.Text }, 0.12)
+            end
+        end)
+        btn.MouseLeave:Connect(function()
+            if Window.Current ~= name then
+                tween(btn, { BackgroundTransparency = 1 }, 0.12)
+                tween(label, { TextColor3 = Theme.Muted }, 0.12)
+            end
+        end)
 
         local Tab = {
             Name = name,
@@ -2696,6 +2803,7 @@ function YugenUI:CreateWindow(config)
             Page = page,
             NavButton = btn,
             NavLabel = label,
+            ActiveBar = activeBar,
             Refresh = refresh,
         }
 
@@ -2779,8 +2887,10 @@ function YugenUI:CreateWindow(config)
     local savedSize = Vector2.new(width, height)
     local function applySearch(q)
         q = string.lower(tostring(q or ""))
-        for _, tab in pairs(Window.Tabs) do
+        local matchTabs = {}
+        for tabName, tab in pairs(Window.Tabs) do
             local pg = tab.Page
+            local anyVisible = false
             if pg then
                 for _, child in ipairs(pg:GetChildren()) do
                     if child:IsA("GuiObject") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
@@ -2788,9 +2898,22 @@ function YugenUI:CreateWindow(config)
                         pcall(function()
                             label = child:GetAttribute("YugenSearch") or ""
                         end)
-                        child.Visible = (q == "" or string.find(label, q, 1, true) ~= nil)
+                        local match = q == "" or string.find(label, q, 1, true) ~= nil
+                        child.Visible = match
+                        if match then
+                            anyVisible = true
+                        end
                     end
                 end
+            end
+            if q ~= "" and anyVisible then
+                matchTabs[tabName] = true
+            end
+        end
+        if q ~= "" and not matchTabs[Window.Current] then
+            for tabName in pairs(matchTabs) do
+                switchTab(tabName)
+                break
             end
         end
     end
@@ -2800,18 +2923,40 @@ function YugenUI:CreateWindow(config)
 
     function Window:Minimize()
         minimized = not minimized
-        sidebar.Visible = not minimized
-        content.Visible = not minimized
         searchBox.Visible = not minimized and config.Search ~= false
         if minimized then
             savedSize = Vector2.new(main.AbsoluteSize.X, main.AbsoluteSize.Y)
-            tween(main, { Size = UDim2.fromOffset(280, 48) }, 0.2)
+            tween(sidebar, { BackgroundTransparency = 1 }, 0.12)
+            tween(content, { BackgroundTransparency = 1 }, 0.12)
+            delayCall(0.12, function()
+                if minimized then
+                    sidebar.Visible = false
+                    content.Visible = false
+                end
+            end)
+            tween(main, { Size = UDim2.fromOffset(280, 48) }, 0.22)
         else
-            tween(main, { Size = UDim2.fromOffset(savedSize.X, savedSize.Y) }, 0.2)
+            sidebar.Visible = true
+            content.Visible = true
+            tween(sidebar, { BackgroundTransparency = 0 }, 0.18)
+            tween(content, { BackgroundTransparency = YugenUI.Transparency and 0.25 or 0 }, 0.18)
+            tween(main, { Size = UDim2.fromOffset(savedSize.X, savedSize.Y) }, 0.22)
         end
     end
     minBtn.MouseButton1Click:Connect(function()
         Window:Minimize()
+    end)
+    minBtn.MouseEnter:Connect(function()
+        tween(minBtn, { TextColor3 = Theme.Text }, 0.1)
+    end)
+    minBtn.MouseLeave:Connect(function()
+        tween(minBtn, { TextColor3 = Theme.Muted }, 0.1)
+    end)
+    closeBtn.MouseEnter:Connect(function()
+        tween(closeBtn, { TextColor3 = Theme.Danger }, 0.1)
+    end)
+    closeBtn.MouseLeave:Connect(function()
+        tween(closeBtn, { TextColor3 = Theme.Muted }, 0.1)
     end)
 
     function Window:Dialog(cfg)
@@ -2819,67 +2964,109 @@ function YugenUI:CreateWindow(config)
         local overlay = make("Frame", {
             Size = UDim2.fromScale(1, 1),
             BackgroundColor3 = Color3.new(0, 0, 0),
-            BackgroundTransparency = 0.45,
-            ZIndex = 80,
-            Parent = main,
+            BackgroundTransparency = 1,
+            ZIndex = 200,
+            Parent = screenGui,
+        })
+        local dim = make("TextButton", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 1,
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = 200,
+            Parent = overlay,
         })
         local panel = make("Frame", {
-            Size = UDim2.fromOffset(300, 170),
-            Position = UDim2.new(0.5, -150, 0.5, -85),
+            Size = UDim2.fromOffset(320, 180),
+            Position = UDim2.new(0.5, -160, 0.5, -110),
             BackgroundColor3 = Theme.Bg,
-            ZIndex = 81,
+            ZIndex = 201,
             Parent = overlay,
         })
         paint(panel, "BackgroundColor3", "Bg")
         corner(panel, 14)
-        stroke(panel, Theme.Stroke, 1, 0.15)
+        themedStroke(panel, "Stroke", 1, 0.15)
         make("TextLabel", {
             BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(16, 12),
-            Size = UDim2.new(1, -32, 0, 22),
+            Position = UDim2.fromOffset(18, 14),
+            Size = UDim2.new(1, -36, 0, 22),
             Font = uiFont("Bold"),
             Text = cfg.Title or "Dialog",
             TextSize = 15,
             TextColor3 = Theme.Text,
             TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 82,
+            ZIndex = 202,
             Parent = panel,
         })
         make("TextLabel", {
             BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(16, 40),
-            Size = UDim2.new(1, -32, 0, 56),
+            Position = UDim2.fromOffset(18, 42),
+            Size = UDim2.new(1, -36, 0, 70),
             Font = uiFont("Regular"),
             Text = cfg.Content or "",
             TextSize = 12,
             TextColor3 = Theme.Muted,
             TextWrapped = true,
             TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 82,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            ZIndex = 202,
             Parent = panel,
         })
+        local closed = false
+        local function close(cb)
+            if closed then return end
+            closed = true
+            tween(dim, { BackgroundTransparency = 1 }, 0.15)
+            tween(panel, { Position = UDim2.new(0.5, -160, 0.5, -110) }, 0.15)
+            delayCall(0.15, function()
+                if overlay.Parent then overlay:Destroy() end
+                if cb then pcall(cb) end
+            end)
+        end
         local buttons = cfg.Buttons or { { Title = "OK" } }
         for i, b in ipairs(buttons) do
+            local isPrimary = i == 1
             local btn = make("TextButton", {
-                Size = UDim2.new(1 / #buttons, -10, 0, 32),
-                Position = UDim2.new((i - 1) / #buttons, 8, 1, -44),
-                BackgroundColor3 = i == 1 and Theme.AccentDim or Theme.Card,
+                Size = UDim2.new(1 / #buttons, -10, 0, 34),
+                Position = UDim2.new((i - 1) / #buttons, 8, 1, -46),
+                BackgroundColor3 = isPrimary and Theme.AccentDim or Theme.Card,
                 Text = b.Title or "OK",
                 Font = uiFont("Bold"),
                 TextSize = 12,
                 TextColor3 = Theme.Text,
                 AutoButtonColor = false,
-                ZIndex = 82,
+                ZIndex = 202,
                 Parent = panel,
             })
             corner(btn, 8)
+            paint(btn, "BackgroundColor3", isPrimary and "AccentDim" or "Card")
+            paint(btn, "TextColor3", "Text")
+            btn.MouseEnter:Connect(function()
+                tween(btn, { BackgroundColor3 = isPrimary and Theme.Accent or Theme.CardHover }, 0.12)
+            end)
+            btn.MouseLeave:Connect(function()
+                tween(btn, { BackgroundColor3 = isPrimary and Theme.AccentDim or Theme.Card }, 0.12)
+            end)
             btn.MouseButton1Click:Connect(function()
-                overlay:Destroy()
-                if b.Callback then
-                    pcall(b.Callback)
-                end
+                close(b.Callback)
             end)
         end
+        dim.MouseButton1Click:Connect(function()
+            if cfg.DismissOnBackdrop == false then return end
+            close()
+        end)
+        onInputBegan(function(input, gpe)
+            if gpe or closed then return end
+            if input.KeyCode == Enum.KeyCode.Escape then
+                close()
+            elseif input.KeyCode == Enum.KeyCode.Return and buttons[1] then
+                close(buttons[1].Callback)
+            end
+        end, overlay)
+        tween(dim, { BackgroundTransparency = 0.45 }, 0.15)
+        panel.Position = UDim2.new(0.5, -160, 0.5, -100)
+        tween(panel, { Position = UDim2.new(0.5, -160, 0.5, -90) }, 0.18)
         return overlay
     end
 
@@ -3110,12 +3297,12 @@ function YugenUI:CreateWindow(config)
         Window:Destroy()
     end)
 
-    UserInputService.InputBegan:Connect(function(input, gpe)
+    onInputBegan(function(input, gpe)
         if gpe then return end
         if input.KeyCode == toggleKey then
             main.Visible = not main.Visible
         end
-    end)
+    end, screenGui)
 
     table.insert(YugenUI.Windows, Window)
     return Window
@@ -3138,4 +3325,3 @@ function YugenUI:GetTheme()
 end
 
 return YugenUI
-

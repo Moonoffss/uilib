@@ -1,13 +1,13 @@
 ﻿# Yugen UI Library
 
-Dark card UI for Roblox executor scripts. **v1.1.1**
+Dark card UI for Roblox executor scripts. **v1.3.0**
 
 Fluent-class API (flags, live themes, dialogs, configs) with Yugen look — not a Windows 11 clone.
 
 ## Load
 
 ```lua
-local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.1.1"))()
+local YugenUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Moonoffss/uilib/main/yugen_ui.lua?v=1.3.0"))()
 ```
 
 Local: `loadstring(readfile("yugen_ui.lua"))()`
